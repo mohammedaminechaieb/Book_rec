@@ -1,0 +1,61 @@
+# ==============================================================================
+# File      : config/config.yaml
+# Owner     : shared - Amine (data, split, als, gate) | Ella (cold_start, tfidf, eval)
+# What      : single source of truth for paths and hyper-parameters
+# Input     : read by src/utils/config.py -> load_config()
+# Output    : dict used by every script / module
+# ==============================================================================
+
+seed: 42
+
+paths:
+  raw_dir: data/raw
+  interim_dir: data/interim
+  processed_dir: data/processed
+  figures_dir: results/figures
+  tables_dir: results/tables
+  runs_dir: results/runs
+
+data:
+  base_url: https://datarepo.eng.ucsd.edu/mcauley_group/gdrive/goodreads
+  genre: fantasy_paranormal
+  interactions_file: goodreads_interactions_fantasy_paranormal.json.gz
+  books_file: goodreads_books_fantasy_paranormal.json.gz
+  genres_file: goodreads_book_genres_initial.json.gz
+  n_users_sample: 50000          # users to keep after sampling
+  positive_rating: 4             # rating >= 4 OR is_read -> positive
+  min_user_interactions: 5
+  min_book_interactions: 5
+
+split:
+  strategy: per_user_time        # last interactions of each user (by date_updated)
+  val_ratio: 0.1
+  test_ratio: 0.2
+
+cold_start:
+  cold_book_fraction: 0.10       # share of books turned "cold"
+  max_train_interactions: 3      # interactions kept in train for a cold book
+  cold_threshold: 3              # n <= this in train -> book counts as cold in eval
+
+als:
+  factors: 64
+  regularization: 0.01
+  iterations: 20
+  alpha: 40                      # confidence scaling for implicit feedback
+
+tfidf:
+  use_description: true
+  use_shelves: true
+  top_shelves_per_book: 20
+  max_features: 50000
+  min_df: 3
+  ngram_range: [1, 2]
+
+gate:
+  k: 20                          # default, replaced by best k from tune_k.py
+  k_grid: [0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
+  fixed_alpha: 0.5               # for the 50/50 baseline
+
+eval:
+  top_n: 20
+  batch_size: 2000

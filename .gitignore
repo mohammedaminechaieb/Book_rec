@@ -1,0 +1,17 @@
+# Owner: shared | Purpose: keep data, envs and outputs out of git
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+data/raw/*
+data/interim/*
+data/processed/*
+!data/**/.gitkeep
+results/runs/*
+!results/runs/.gitkeep
+*.npz
+*.parquet
+*.gz
+.DS_Store
+.vscode/
+.idea/
