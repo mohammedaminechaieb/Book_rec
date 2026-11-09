@@ -1,9 +1,9 @@
 # ==============================================================================
 # File      : config/config.yaml
-# Owner     : shared - Amine (data, split, als, gate) | Ella (cold_start, tfidf, eval)
+# Owner     : shared - Amine (data, split, als, gate, explain) | Ella (cold start, tfidf, eval, app)
 # What      : single source of truth for paths and hyper-parameters
 # Input     : read by src/utils/config.py -> load_config()
-# Output    : dict used by every script / module
+# Output    : dict used by every script / module / the app
 # ==============================================================================
 
 seed: 42
@@ -33,9 +33,13 @@ split:
   test_ratio: 0.2
 
 cold_start:
+  # new ITEMS (simulated)
   cold_book_fraction: 0.10       # share of books turned "cold"
   max_train_interactions: 3      # interactions kept in train for a cold book
   cold_threshold: 3              # n <= this in train -> book counts as cold in eval
+  # new USERS (simulated)
+  cold_user_fraction: 0.10       # share of users turned "cold"
+  max_user_train_interactions: 3 # earliest interactions kept in train for a cold user
 
 als:
   factors: 64
@@ -51,11 +55,22 @@ tfidf:
   min_df: 3
   ngram_range: [1, 2]
 
+embeddings:                      # optional recent approach (content_embeddings.py)
+  enabled: false
+  model_name: sentence-transformers/all-MiniLM-L6-v2
+  batch_size: 256
+
 gate:
   k: 20                          # default, replaced by best k from tune_k.py
   k_grid: [0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
   fixed_alpha: 0.5               # for the 50/50 baseline
 
 eval:
-  top_n: 20
+  top_n: 20                      # list length for exposure metrics
+  ks: [5, 10, 20]                # Precision / Recall / NDCG / HR at these K
   batch_size: 2000
+
+app:
+  n_demo_users: 300              # readers listed in the demo dropdown
+  default_top_n: 10
+  explain_top_shelves: 3         # shared shelves shown in an explanation

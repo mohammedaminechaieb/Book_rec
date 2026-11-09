@@ -1,23 +1,27 @@
 <!--
 File    : reports/report_outline.md
 Owner   : shared - section leads below
-What    : skeleton of the final report, with a lead and a reviewer for each section
+What    : skeleton of the final report (10 pages MAX, in French), with a lead and a reviewer for each section
 Input   : results/tables/*.csv, results/figures/*.png, notebooks
 Output  : final report (PDF) + slides in reports/slides/
 -->
-# Reducing popularity bias in book recommendation on Goodreads
+# Systeme de recommandation hybride : reduire le biais de popularite (Goodreads)
 
-| # | Section | Lead | Reviewer |
-|---|---|---|---|
-| 1 | Introduction and problem (popularity bias, long tail) | Ella | Amine |
-| 2 | Related work (CF, content, hybrids, accuracy-only evaluation) | Amine | Ella |
-| 3 | Data (UCSD Book Graph, genre subset, filtering, simulated cold start) | Amine | Ella |
-| 4.1 | Method: ALS collaborative branch | Amine | Ella |
-| 4.2 | Method: TF-IDF content branch | Ella | Amine |
-| 4.3 | Method: per-book gate alpha = n / (n + k) | Amine | Ella |
-| 5 | Evaluation protocol (split, Recall/NDCG, coverage, novelty, variety) | Ella | Amine |
-| 6 | Results: baselines table, cold subset, trade-off curve | Both | Both |
-| 7 | Discussion and limitations (2017 data, one genre, simulated cold start) | Ella | Amine |
-| 8 | Conclusion and future work (learned gate, embeddings) | Amine | Ella |
+**Limit: 10 pages maximum** (excluding the appendix with the AI conversations). Page budget per section is given in brackets.
 
-Slides: 50/50. Amine presents sections 2-4.1, 4.3 and 8; Ella presents 1, 4.2, 5 and 7. You present Results (6) together.
+| # | Section | Assignment step | Pages | Lead | Reviewer |
+|---|---|---|---|---|---|
+| 1 | Introduction: problem, popularity bias, long tail | - | 0.75 | Ella | Amine |
+| 2 | Related work (CF, content, hybrids, accuracy-only evaluation) | - | 0.5 | Amine | Ella |
+| 3 | Domain and dataset (UCSD Book Graph, genre subset) | 1 | 0.5 | Amine | Ella |
+| 4 | Data analysis and preparation: stats table, sparsity, popularity distribution, cleaning, split, cold-start simulation | 2 | 1.25 | Ella | Amine |
+| 5.1 | Base approaches: popularity, TF-IDF content | 3 | 0.75 | Ella | Amine |
+| 5.2 | Base approaches: ALS (+ optional embeddings) | 3 | 0.75 | Amine | Ella |
+| 6 | Hybrid: per-book gate a = n/(n+k), why it is justified, tuning k | 4 | 1 | Amine | Ella |
+| 7 | Evaluation protocol: P/R/NDCG/HR@K, coverage, novelty, genre variety; all / cold items / cold users | 5 | 0.75 | Ella | Amine |
+| 8 | Results: comparison table, cold-start results, trade-off curve | 5 | 1.5 | Both | Both |
+| 9 | Demonstration: interface and explanations (screenshots) | 6 | 0.75 | Ella | Amine |
+| 10 | Use of generative AI: generated vs hand-written/modified parts, AI errors found and fixed, our own technical choices | 7 | 1 | Both | Both |
+| 11 | Limits and conclusion | - | 0.5 | Amine | Ella |
+
+Slides: 50/50. Amine presents sections 2, 3, 5.2, 6 and 11; Ella presents 1, 4, 5.1, 7 and 9. You present 8 and 10 together, then the live demo.

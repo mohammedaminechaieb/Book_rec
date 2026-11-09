@@ -5,7 +5,9 @@ Run `pytest -q` from the project root. **Cross-testing:** each person tests the 
 |---|---|---|
 | `test_accuracy_metrics.py` | Ella | Amine |
 | `test_split_and_gate.py` | Ella | Amine |
+| `test_explain.py` | Ella | Amine |
 | `test_exposure_metrics.py` | Amine | Ella |
 | `test_cold_start.py` | Amine | Ella |
+| `test_stats.py` | Amine | Ella |
 
 The tests describe the expected behaviour. They fail with `NotImplementedError` until the functions are written.

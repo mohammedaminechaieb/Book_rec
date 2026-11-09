@@ -6,16 +6,21 @@ Owner     : Amine (lead)  |  Ella (co-owner / reviewer)
 ------------------------------------------------------------------------------
 What it does:
   End-to-end pipeline:
-    load -> clean -> split -> cold-start simulation -> id maps / CSR
-    -> fit Popularity, ALS, Content -> build 50/50 and gated hybrids
-    -> evaluate all 5 models on TEST -> save the table and figures
+    load -> stats (raw) -> clean -> stats (clean) -> split -> stats (train)
+    -> cold-start simulation (new books + new users) -> id maps / CSR
+    -> fit Popularity, ALS, TF-IDF content [+ embeddings if enabled]
+    -> build the 50/50 and gated hybrids
+    -> evaluate every model on TEST (all / cold items / cold users; P, R, NDCG, HR @K;
+       coverage, novelty, genre variety, tail share)
+    -> save tables, figures and the artifacts used by the demo app
   Each step skips its work if its output file already exists (--force reruns it).
 Input:
   - config/config.yaml, data/raw/*
 Output:
-  - data/interim/*, data/processed/*
-  - results/tables/test_metrics.csv
-  - results/figures/baseline_bars.png, popularity_of_recs.png, long_tail.png
+  - data/interim/*, data/processed/* (splits, cold lists, id maps, n_items.npy,
+    als_factors.npz, tfidf_items.npz, [book_embeddings.npy])
+  - results/tables/dataset_stats.csv, test_metrics.csv
+  - results/figures/long_tail.png, baseline_bars.png, popularity_of_recs.png
   - results/runs/<timestamp>.json (config + metrics of the run)
 Run:
   python scripts/run_pipeline.py [--force] [--k 20]
