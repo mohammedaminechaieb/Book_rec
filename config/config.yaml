@@ -58,7 +58,7 @@ tfidf:
 embeddings:                      # optional recent approach (content_embeddings.py)
   enabled: false
   model_name: sentence-transformers/all-MiniLM-L6-v2
-  batch_size: 500
+  batch_size: 256
 
 gate:
   k: 20                          # default, replaced by best k from tune_k.py
@@ -68,7 +68,7 @@ gate:
 eval:
   top_n: 20                      # list length for exposure metrics
   ks: [5, 10, 20]                # Precision / Recall / NDCG / HR at these K
-  batch_size: 2000
+  batch_size: 500
 
 app:
   n_demo_users: 300              # readers listed in the demo dropdown
