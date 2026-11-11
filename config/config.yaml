@@ -58,7 +58,7 @@ tfidf:
 embeddings:                      # optional recent approach (content_embeddings.py)
   enabled: false
   model_name: sentence-transformers/all-MiniLM-L6-v2
-  batch_size: 256
+  batch_size: 500
 
 gate:
   k: 20                          # default, replaced by best k from tune_k.py
