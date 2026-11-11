@@ -17,10 +17,10 @@ paths:
   runs_dir: results/runs
 
 data:
-  base_url: https://datarepo.eng.ucsd.edu/mcauley_group/gdrive/goodreads
-  genre: fantasy_paranormal
-  interactions_file: goodreads_interactions_fantasy_paranormal.json.gz
-  books_file: goodreads_books_fantasy_paranormal.json.gz
+  base_url: https://mcauleylab.ucsd.edu/public_datasets/gdrive/goodreads
+  genre: comics_graphic
+  interactions_file: goodreads_interactions_comics_graphic.json.gz
+  books_file: goodreads_books_comics_graphic.json.gz
   genres_file: goodreads_book_genres_initial.json.gz
   n_users_sample: 50000          # users to keep after sampling
   positive_rating: 4             # rating >= 4 OR is_read -> positive
