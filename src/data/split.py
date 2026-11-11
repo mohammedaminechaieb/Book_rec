@@ -38,7 +38,11 @@ def _holdout_sizes(n: np.ndarray, val_ratio: float, test_ratio: float
 
 def per_user_time_split(df: pd.DataFrame, val_ratio: float, test_ratio: float
                         ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Return (train, val, test). Every user keeps at least 1 train interaction."""
+    """Return (train, val, test). Every user keeps at least 1 train interaction.
+
+    Pure time split: no row is removed. Unknown books are removed afterwards
+    with drop_unknown_books().
+    """
     # 1. Sort each user's history in time; book_id breaks ties so the result is always the same.
     df = df[COLUMNS].sort_values(["user_id", "date_updated", "book_id"]).reset_index(drop=True)
 
@@ -53,15 +57,14 @@ def per_user_time_split(df: pd.DataFrame, val_ratio: float, test_ratio: float
     is_val = (~is_test) & (pos_from_end < n_test + n_val)
     is_train = ~(is_test | is_val)
 
-    train, val, test = df[is_train], df[is_val], df[is_test]
+    return (df[is_train].reset_index(drop=True), df[is_val].reset_index(drop=True),
+            df[is_test].reset_index(drop=True))
 
-    # 4. Remove val/test books never seen in train: no model can learn them.
+
+def drop_unknown_books(train: pd.DataFrame, heldout: pd.DataFrame) -> pd.DataFrame:
+    """Remove val/test rows whose book never appears in train (no model can score it)."""
     known_books = set(train["book_id"])
-    val = val[val["book_id"].isin(known_books)]
-    test = test[test["book_id"].isin(known_books)]
-
-    return (train.reset_index(drop=True), val.reset_index(drop=True),
-            test.reset_index(drop=True))
+    return heldout[heldout["book_id"].isin(known_books)].reset_index(drop=True)
     
 def main() -> None:
     from src.utils.config import load_config
@@ -72,6 +75,7 @@ def main() -> None:
 
     df = load_df(interim / "interactions_clean.parquet")
     train, val, test = per_user_time_split(df, cfg["split"]["val_ratio"], cfg["split"]["test_ratio"])
+    val, test = drop_unknown_books(train, val), drop_unknown_books(train, test)
 
     save_df(train, processed / "train.parquet")
     save_df(val, processed / "val.parquet")

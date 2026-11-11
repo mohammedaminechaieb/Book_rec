@@ -58,3 +58,24 @@ class ALSModel:
         self.user_factors = np.asarray(model.user_factors, dtype=np.float32)
         self.item_factors = np.asarray(model.item_factors, dtype=np.float32)
         return self
+    
+    def score(self, user_idx: np.ndarray) -> np.ndarray:
+        """Scores of every book for a batch of users -> (len(user_idx), n_books)."""
+        if self.user_factors is None:
+            raise RuntimeError("ALSModel.score() called before fit() or load().")
+        user_idx = np.asarray(user_idx)
+        return self.user_factors[user_idx] @ self.item_factors.T
+
+    def save(self, path: Path) -> None:
+        """Write data/processed/als_factors.npz (used by the demo app)."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        np.savez(path, user_factors=self.user_factors, item_factors=self.item_factors)
+
+    @classmethod
+    def load(cls, path: Path) -> "ALSModel":
+        """Rebuild a fitted model from als_factors.npz, without retraining."""
+        data = np.load(path)
+        model = cls()
+        model.user_factors, model.item_factors = data["user_factors"], data["item_factors"]
+        return model
