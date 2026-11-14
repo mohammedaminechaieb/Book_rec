@@ -1,42 +1,159 @@
-"""
-==============================================================================
-File      : src/data/cold_start.py
-Project   : book_rec - Reducing popularity bias in book recommendation
-Owner     : Ella (lead)  |  Amine (co-owner / reviewer + writes the tests)
-------------------------------------------------------------------------------
-What it does:
-  Simulates cold start (Goodreads data is from 2017, so nothing is truly new).
-  1. New ITEMS: picks a random cold_book_fraction of the books and removes all
-     but max_train_interactions of their TRAIN interactions.
-  2. New USERS: picks a random cold_user_fraction of the users and keeps only
-     their max_user_train_interactions EARLIEST train interactions.
-  Val/test interactions are kept in both cases, so the evaluation can measure
-  how well these books / users are served.
-Input:
-  - data/processed/train.parquet
-  - config.yaml -> cold_start.*, seed
-Output:
-  - data/processed/train_cold.parquet   (train after both simulations)
-  - data/processed/cold_books.json      (book_ids made cold)
-  - data/processed/cold_users.json      (user_ids made cold)
-==============================================================================
-"""
+
 import numpy as np
 import pandas as pd
 
 
-def make_cold_books(train: pd.DataFrame, fraction: float, keep: int, seed: int
-                    ) -> tuple[pd.DataFrame, list]:
-    """Return (train_cold, cold_book_ids)."""
-    raise NotImplementedError("TODO (Ella)")
+def make_cold_books(
+    train: pd.DataFrame,
+    fraction: float,
+    keep: int,
+    seed: int
+) -> tuple[pd.DataFrame, list]:
+    """
+    Simulate cold-start books.
+
+    Select a fraction of training books randomly and retain
+    at most 'keep' training interactions for each selected book.
+
+    Returns:
+        train_cold: reduced training DataFrame
+        cold_book_ids: selected book identifiers
+    """
+    if not 0 <= fraction <= 1:
+        raise ValueError("fraction must be between 0 and 1")
+
+    if keep < 0:
+        raise ValueError("keep must be non-negative")
+
+    rng = np.random.default_rng(seed)
+
+    book_ids = train["book_id"].dropna().unique()
+
+    n_cold = int(len(book_ids) * fraction)
+
+    if n_cold == 0:
+        return train.copy().reset_index(drop=True), []
+
+    cold_books = rng.choice(
+        book_ids,
+        size=n_cold,
+        replace=False
+    ).tolist()
+
+    # All interactions belonging to non-cold books.
+    normal_mask = ~train["book_id"].isin(cold_books)
+    normal_rows = train.loc[normal_mask].copy()
+
+    # Interactions belonging to selected cold books.
+    cold_rows = train.loc[~normal_mask].copy()
+
+    # Randomize and retain at most 'keep' rows per cold book.
+    if keep == 0:
+        cold_rows = cold_rows.iloc[0:0].copy()
+    else:
+        random_state = int(
+            rng.integers(0, np.iinfo(np.int32).max)
+        )
+
+        cold_rows = cold_rows.sample(
+            frac=1,
+            random_state=random_state
+        )
+
+        cold_rows = (
+            cold_rows.groupby("book_id", sort=False)
+            .head(keep)
+        )
+
+    train_cold = pd.concat(
+        [normal_rows, cold_rows]
+    ).sort_index(kind="stable").reset_index(drop=True)
+
+    return train_cold, cold_books
 
 
-def make_cold_users(train: pd.DataFrame, fraction: float, keep: int, seed: int
-                    ) -> tuple[pd.DataFrame, list]:
-    """Return (train_cold, cold_user_ids). Keep the `keep` earliest rows (date_updated) of each cold user."""
-    raise NotImplementedError("TODO (Ella)")
+def make_cold_users(
+    train: pd.DataFrame,
+    fraction: float,
+    keep: int,
+    seed: int
+) -> tuple[pd.DataFrame, list]:
+    """
+    Simulate users with limited histories.
+
+    For each selected cold user, keep only the earliest
+    'keep' training interactions based on date_updated.
+
+    Returns:
+        train_cold: reduced training DataFrame
+        cold_user_ids: selected user identifiers
+    """
+    if not 0 <= fraction <= 1:
+        raise ValueError("fraction must be between 0 and 1")
+
+    if keep < 0:
+        raise ValueError("keep must be non-negative")
+
+    if "date_updated" not in train.columns:
+        raise ValueError("date_updated column is required")
+
+    rng = np.random.default_rng(seed)
+
+    user_ids = train["user_id"].dropna().unique()
+
+    n_cold = int(len(user_ids) * fraction)
+
+    if n_cold == 0:
+        return train.copy().reset_index(drop=True), []
+
+    cold_users = rng.choice(
+        user_ids,
+        size=n_cold,
+        replace=False
+    ).tolist()
+
+    # Keep all interactions of users not selected as cold.
+    normal_mask = ~train["user_id"].isin(cold_users)
+    normal_rows = train.loc[normal_mask].copy()
+
+    # Sort cold-user interactions chronologically.
+    cold_rows = train.loc[~normal_mask].copy()
+
+    cold_rows["date_updated"] = pd.to_datetime(
+        cold_rows["date_updated"],
+        errors="coerce"
+    )
+
+    cold_rows = cold_rows.sort_values(
+        "date_updated",
+        kind="stable",
+        na_position="last"
+    )
+
+    # Retain the earliest interactions for each cold user.
+    cold_rows = (
+        cold_rows.groupby("user_id", sort=False)
+        .head(keep)
+    )
+
+    train_cold = pd.concat(
+        [normal_rows, cold_rows]
+    ).sort_index(kind="stable").reset_index(drop=True)
+
+    return train_cold, cold_users
 
 
 def book_counts(train: pd.DataFrame) -> pd.Series:
-    """n = number of training interactions per book (this is the input of the gate)."""
-    raise NotImplementedError("TODO (Ella)")
+    """
+    Count the number of training interactions per book.
+
+    The counts are used by the hybrid gate to control
+    the weight of ALS versus the content-based model.
+
+    Returns:
+        pandas Series indexed by book_id
+    """
+    counts = train.groupby("book_id").size()
+    counts.name = "n_interactions"
+
+    return counts
