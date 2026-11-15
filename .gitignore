@@ -15,3 +15,5 @@ results/runs/*
 .DS_Store
 .vscode/
 .idea/
+*.bundle
+*.patch
