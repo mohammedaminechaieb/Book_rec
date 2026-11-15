@@ -36,3 +36,24 @@ def test_dedupe_removes_editions_keeps_other_volumes():
 
 def test_limit():
     assert dedupe_candidates([f"Book {i}" for i in range(10)], [], limit=3) == [0, 1, 2]
+
+
+def test_accents_volumes_and_collections():
+    picked = ["Persepolis: The Story of a Childhood (Persepolis, #1)"]
+    candidates = ["Persepolis: The Story of a Childhood and the Story of a Return",   # contains the picked book
+                  "Persépolis (Persepolis #1-4)",                                    # collected, accent
+                  "Persepolis, Volume 2",                                            # next volume: keep
+                  "Persepolis 2: The Story of a Return",                             # same volume 2: drop
+                  "Blacksad (Blacksad, #1-3)",                                       # collected: keep once
+                  "Arctic-Nation (Blacksad, #2)",                                    # inside the collection: drop
+                  "Saga, Vol. 1 (Saga, #1)",
+                  "Saga, Vol. 2 (Saga, #2)"]                                         # other volume: keep
+    kept = [candidates[i] for i in dedupe_candidates(candidates, picked, limit=10)]
+    assert kept == ["Persepolis, Volume 2", "Blacksad (Blacksad, #1-3)",
+                    "Saga, Vol. 1 (Saga, #1)", "Saga, Vol. 2 (Saga, #2)"]
+
+
+def test_work_id_wins():
+    kept = dedupe_candidates(["Totally Different Title"], ["Original Title"], limit=5,
+                             candidate_work_ids=["42"], reference_work_ids=["42"])
+    assert kept == []

@@ -12,7 +12,9 @@ What it does:
   2. tradeoff_curve
   3. gate_curve
   4. popularity_of_recs  (one box per model, log axis)
-  5. baseline_bars       (genre_variety left out: constant on this dataset)
+  5. baseline_bars       (6 panels incl. recall on new books; genre_variety left out:
+                          constant on this dataset)
+  gate_curve uses a log x axis; tradeoff_curve highlights the chosen k.
 
   Titles and axes are in French, like the report; metric names come from
   src/labels.py. White background on purpose: the figures go into the PDF report.
@@ -145,7 +147,8 @@ def long_tail_distribution(
 
 def tradeoff_curve(
     k_table: pd.DataFrame,
-    out: Path
+    out: Path,
+    best_k: float | None = None
 ) -> None:
     """
     Plot the accuracy-diversity tradeoff for different k values.
@@ -214,19 +217,26 @@ def tradeoff_curve(
         color="royalblue"
     )
 
-    # Label each point with its k value.
+    # Label only a few k values (all labels overlap) and highlight the chosen k.
+    shown = {0.0, 5.0, 20.0, 100.0, 1000.0}
     for _, row in data.iterrows():
-
-        ax.annotate(
-            f"k={row[k_col]:g}",
-            (
-                row[coverage_col],
-                row[recall_col]
-            ),
-            xytext=(5, 6),
-            textcoords="offset points",
-            fontsize=8
-        )
+        k_value = float(row[k_col])
+        is_best = best_k is not None and abs(k_value - float(best_k)) < 1e-9
+        if is_best:
+            ax.scatter(row[coverage_col], row[recall_col], s=140, color="#c0392b", zorder=3,
+                       label=f"k retenu = {k_value:g}")
+        if is_best or k_value in shown:
+            ax.annotate(
+                f"k = {k_value:g}",
+                (row[coverage_col], row[recall_col]),
+                xytext=(6, 7),
+                textcoords="offset points",
+                fontsize=10,
+                color="#c0392b" if is_best else "black",
+                fontweight="bold" if is_best else "normal",
+            )
+    if best_k is not None:
+        ax.legend(loc="best")
 
     ax.set_title(
         "Rappel@20 et couverture du catalogue selon k",
@@ -284,9 +294,12 @@ def gate_curve(
             "n_max must be non-negative."
         )
 
-    n = np.arange(
-        n_max + 1,
-        dtype=float
+    # Log axis from 1 reader: the interesting part (n between 1 and a few k)
+    # would otherwise be squeezed against the y axis.
+    n = np.logspace(
+        0,
+        np.log10(max(n_max, 10)),
+        300
     )
 
     # Weight assigned to ALS.
@@ -324,8 +337,10 @@ def gate_curve(
         fontsize=14
     )
 
+    ax.set_xscale("log")
+    ax.set_xlim(1, max(n_max, 10))
     ax.set_xlabel(
-        "Lecteurs du livre dans l'entraînement (n)"
+        "Lecteurs du livre dans l'entraînement (n, échelle log)"
     )
 
     ax.set_ylabel(
@@ -517,6 +532,7 @@ def baseline_bars(
         "coverage",
         "novelty",
         "tail_share",
+        "cold_items/recall@20",
     ]
 
     available_metrics = [

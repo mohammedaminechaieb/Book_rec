@@ -184,6 +184,11 @@ def clean_books(books: pd.DataFrame, keep_ids: set) -> pd.DataFrame:
     else:
         result["n_ratings"] = 0
 
-    return result[
-        ["book_id", "title", "text", "shelves", "n_ratings"]
-    ].reset_index(drop=True)
+    columns = ["book_id", "title", "text", "shelves", "n_ratings"]
+
+    # Keep the Goodreads work id when present: it groups the editions of a book.
+    if "work_id" in result.columns:
+        result["work_id"] = result["work_id"].fillna("").astype(str)
+        columns.append("work_id")
+
+    return result[columns].reset_index(drop=True)

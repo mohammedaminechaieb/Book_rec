@@ -48,9 +48,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.utils.config import load_config  # noqa: E402
 from src import recommend  # noqa: E402
-from src.editions import work_keys  # noqa: E402
+from src.editions import dedupe_candidates, work_keys  # noqa: E402
+from src.explain import shelf_key  # noqa: E402
 from src.labels import (  # noqa: E402
-    METRIC_HELP, METRIC_LABEL, MODEL_LABEL, NBSP, POP_CLASSES, POP_LABEL, POP_LABEL_PLURAL,
+    METRIC_HELP, METRIC_LABEL, METRIC_SHORT, MODEL_LABEL, NBSP, PERCENT_METRICS, POP_CLASSES, POP_LABEL,
+    POP_LABEL_PLURAL,
     fr_metric, fr_number, fr_percent, model_k, model_label, popularity_class,
 )
 
@@ -103,7 +105,7 @@ footer { visibility:hidden; }
 /* ---------- Hero ---------- */
 .hero { position:relative; overflow:hidden; border:1px solid var(--line); border-radius:6px 28px 6px 28px;
   padding:38px 42px 0; margin-bottom:24px; background:linear-gradient(160deg,#1c1915,#13110e); }
-.hero-text { position:relative; z-index:2; max-width:640px; padding-bottom:26px; }
+.hero-text { position:relative; z-index:2; max-width:560px; padding-bottom:26px; padding-right:24px; }
 .eyebrow { font-family:'Space Mono',monospace; font-size:.8rem; letter-spacing:.22em; text-transform:uppercase; color:var(--tail); }
 .hero h1 { font-size:clamp(2.2rem,5vw,3.9rem); line-height:1.04; margin:.55rem 0 .7rem; font-weight:800; }
 .hero h1 em { font-style:italic; font-weight:600; color:var(--head); }
@@ -143,8 +145,8 @@ footer { visibility:hidden; }
 .gcover { flex:0 0 70px; width:70px; height:100px; border-radius:3px 6px 6px 3px; padding:10px 8px 8px 12px;
   display:flex; flex-direction:column; justify-content:space-between; overflow:hidden;
   box-shadow:3px 4px 0 rgba(0,0,0,.35), inset 5px 0 0 rgba(0,0,0,.25); }
-.gcover span { font-family:'Fraunces',serif; font-weight:600; font-size:.66rem; line-height:1.15; color:rgba(255,255,255,.95);
-  word-break:normal; overflow-wrap:normal; hyphens:none;
+.gcover span { font-family:'Fraunces',serif; font-weight:600; font-size:.62rem; line-height:1.15; color:rgba(255,255,255,.95);
+  overflow-wrap:anywhere; hyphens:auto; -webkit-line-clamp:4 !important;
   display:-webkit-box; -webkit-line-clamp:5; -webkit-box-orient:vertical; overflow:hidden; }
 .gcover i { display:block; width:60%; height:2px; background:rgba(255,255,255,.55); }
 .bbody { flex:1; min-width:0; }
@@ -182,14 +184,16 @@ footer { visibility:hidden; }
 .best .s { font-family:'Space Mono',monospace; font-size:.74rem; color:var(--tail); }
 .brand { font-family:'Fraunces',serif; font-weight:800; font-size:1.5rem; letter-spacing:-.02em; }
 .brand em { color:var(--head); font-weight:600; }
-.brandsub { font-family:'Space Mono',monospace; font-size:.72rem; white-space:nowrap; letter-spacing:.2em; color:var(--muted); }
+.brandsub { font-family:'Space Mono',monospace; font-size:.66rem; letter-spacing:.1em; color:var(--muted); }
+[data-testid="stSidebar"] > div { overflow-x:hidden; }
+.credit { font-size:.78rem; color:var(--muted); margin-top:4px; }
 [data-testid="stMetric"] { background:var(--card); border:1px solid var(--line); border-radius:4px 14px 4px 14px; padding:14px 17px; }
 [data-testid="stMetricLabel"] p { color:var(--muted) !important; font-family:'Space Mono',monospace; font-size:.8rem; letter-spacing:.06em; }
 [data-testid="stMetricValue"] { color:var(--paper); font-family:'Fraunces',serif; }
 [data-testid="stDataFrame"] { border-radius:10px; overflow:hidden; }
 .svgwrap svg { width:100%; height:auto; display:block; }
 .nowrap { white-space:nowrap; }
-.howto { font-size:.86rem; color:var(--muted); border:1px dashed var(--line); border-radius:6px; padding:8px 12px; margin:6px 0 4px; }
+.howto { font-size:.86rem; color:var(--muted); border:1px dashed var(--line); border-radius:6px; padding:8px 12px; margin:6px 0 1.5rem; }
 .howto b { color:var(--paper); }
 .slot { flex:0 0 70px; width:70px; height:100px; border:1px dashed var(--line); border-radius:3px 6px 6px 3px;
   display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:1.4rem; }
@@ -224,7 +228,8 @@ def heading(kicker: str, title: str, note: str = "") -> None:
 
 
 def plural(n: int, word: str) -> str:
-    return f"{n}{NBSP}{word}" + ("s" if n > 1 else "")
+    """'2887 lecteurs' -> '2 887 lecteurs' (French grouping, plural only above 1)."""
+    return f"{fr_number(n, 0)}{NBSP}{word}" + ("s" if n > 1 else "")
 
 
 SPINES = [
@@ -411,16 +416,15 @@ def demo_readers(_art: dict) -> dict:
         for uid, n, head, tail in sorted(rich, key=key):
             if uid not in used:
                 used.add(uid)
-                labels[uid] = (f"{name} · {plural(n, 'livre')} lu{'s' if n > 1 else ''} · "
-                               f"{fr_percent(head)} best{NBSP_HYPHEN}sellers, {fr_percent(tail)} pépites")
+                labels[uid] = f"{name} · {plural(n, 'livre')} lu{'s' if n > 1 else ''}"
                 return
 
     take("Lecteur grand public", key=lambda r: (-r[2], -r[1]))
     take("Lecteur de pépites", key=lambda r: (-r[3], -r[1]))
     take("Lecteur éclectique", key=lambda r: (abs(r[2] - 0.15) + abs(r[3] - 0.5), -r[1]))
-    for i, (uid, n, head, tail) in enumerate(sorted(rows, key=lambda r: -r[1]), start=1):
-        if uid not in used:
-            labels[uid] = f"Lecteur {i:03d} · {plural(n, 'livre')} lu{'s' if n > 1 else ''}"
+    others = [r for r in sorted(rich, key=lambda r: -r[1]) if r[0] not in used][:12]
+    for i, (uid, n, head, tail) in enumerate(others, start=1):
+        labels[uid] = f"Lecteur {i:02d} · {plural(n, 'livre')} lu{'s' if n > 1 else ''}"
     return labels
 
 
@@ -597,7 +601,10 @@ def show_existing_reader(cfg: dict, art: dict) -> None:
     selected = MODELS[model_label]
     compare = False
     if selected == "gate":
-        compare = st.checkbox(f"Comparer avec {MODEL_LABEL['als']}", value=True, key="existing_compare")
+        # the widget disappears for other models; keep the choice in our own key
+        compare = st.checkbox(f"Comparer avec {MODEL_LABEL['als']}",
+                              value=st.session_state.get("compare_pref", True))
+        st.session_state["compare_pref"] = compare
 
     user_idx = art["user2idx"][str(user_id)]
     seen_idx = art["train"][user_idx].indices
@@ -614,14 +621,15 @@ def show_existing_reader(cfg: dict, art: dict) -> None:
         meter = meter_counts(seen)
         if meter:
             md('<div class="panel"><div class="kicker">Profil de lecture</div>'
-               '<h4>Ce lecteur lit surtout…</h4></div>')
+               f'<h4>Ce lecteur lit surtout des {POP_LABEL_PLURAL[max(POP_CLASSES, key=lambda c: meter["counts"][c])].lower()}</h4></div>')
             md(meter_html(meter, art))
     with st.expander("Voir les livres déjà lus", expanded=False):
         if seen.empty:
             st.info("Pas de livres dans l'historique d'entraînement.")
         else:
             table = seen.assign(Catégorie=[POP_LABEL[c] for c in seen["popularity"]]).drop(columns="popularity")
-            st.dataframe(table.reset_index(drop=True), hide_index=True, **stretch())
+            st.dataframe(table.reset_index(drop=True), hide_index=True, **stretch(),
+                         column_config={"Titre": st.column_config.TextColumn("Titre", width="large")})
 
     try:
         with st.spinner("Calcul des recommandations…"):
@@ -638,7 +646,11 @@ def show_existing_reader(cfg: dict, art: dict) -> None:
         heading("Le duel", f"{MODEL_LABEL['als']} contre {MODEL_LABEL['gate']}",
                 "Même lecteur, même nombre de livres : regardez ce qui change dans la jauge.")
         discovery_verdict(als_recs, main_recs, float(art["k"]))
-        left, right = st.columns(2, gap="large")
+        # on a narrow screen two columns stack and the comparison is lost: offer tabs
+        if st.toggle("Affichage en onglets (petit écran)", key="duel_tabs"):
+            left, right = st.tabs([MODEL_LABEL["als"], MODEL_LABEL["gate"]])
+        else:
+            left, right = st.columns(2, gap="large")
         with left:
             show_recommendations(als_recs, MODEL_LABEL["als"], f"cmp_als_{user_id}", covers, art)
         with right:
@@ -656,7 +668,9 @@ def book_catalog(art: dict) -> pd.DataFrame:
         "title": books["title"].fillna("Sans titre").astype(str),
         "n": np.asarray(art["n_items"]).astype(int),
     })
-    cat["work"] = [sorted(work_keys(t))[0] for t in cat["title"]]
+    work_ids = books["work_id"].astype(str) if "work_id" in books.columns else [None] * len(cat)
+    cat["work"] = [sorted(work_keys(t, w))[-1] if w not in (None, "", "nan") else sorted(work_keys(t))[0]
+                   for t, w in zip(cat["title"], work_ids)]
     cat = cat.sort_values(["n", "title"], ascending=[False, True]).drop_duplicates("work")
     return cat.reset_index(drop=True)
 
@@ -668,8 +682,17 @@ def has_little_info(art: dict, book_id: str) -> bool:
     row = art["books"].iloc[i]
     text = str(row.get("text", "") or "")
     shelves = [s for s in (row.get("shelves") if isinstance(row.get("shelves"), (list, np.ndarray)) else [])
-               if s not in art["common_shelves"]]
+               if shelf_key(s) not in art["common_shelves"]]
     return len(text.split()) < 12 and len(shelves) < 2
+
+
+def _add_picked() -> None:
+    """Button callback: add the chosen book, then empty the search box."""
+    choice = st.session_state.get("new_choice")
+    picked = st.session_state.setdefault("picked_books", [])
+    if choice and choice not in picked and len(picked) < 12:
+        picked.append(choice)
+    st.session_state["new_query"] = ""
 
 
 def show_new_reader(cfg: dict, art: dict) -> None:
@@ -680,37 +703,41 @@ def show_new_reader(cfg: dict, art: dict) -> None:
     covers = build_cover_map(art["books"])
     catalog = book_catalog(art)
     picked: list = st.session_state.setdefault("picked_books", [])
-    titles = dict(zip(catalog["book_id"], catalog["title"]))
-    titles.update({str(b): str(t) for b, t in zip(art["books"]["book_id"], art["books"]["title"])})
+    titles = {str(b): str(t) for b, t in zip(art["books"]["book_id"], art["books"]["title"])}
+    readers = dict(zip(catalog["book_id"], catalog["n"]))
 
     query = st.text_input("Rechercher un titre", placeholder="ex. Saga, Maus, Persepolis…", key="new_query")
     if query.strip():
         found = catalog[catalog["title"].str.contains(query.strip(), case=False, regex=False)]
-        found = found[~found["book_id"].isin(picked)].head(15)
+        # hide books already on the shelf AND their other editions
+        on_shelf = [titles.get(b, b) for b in picked]
+        keep = dedupe_candidates(list(found["title"]), on_shelf, limit=15) if on_shelf else range(min(15, len(found)))
+        found = found.iloc[list(keep)]
         if found.empty:
-            st.caption("Aucun titre trouvé.")
+            st.caption("Aucun titre trouvé (ou déjà sur votre étagère).")
         else:
-            choice = st.selectbox(
-                f"{plural(len(found), 'résultat')} (les plus lus d'abord)",
+            st.selectbox(
+                f"{plural(len(found), 'résultat')}" + (", les plus lus d'abord" if len(found) > 1 else ""),
                 list(found["book_id"]),
-                format_func=lambda b: f"{titles[b]} · {plural(int(catalog.set_index('book_id').at[b, 'n']), 'lecteur')}",
+                format_func=lambda b: f"{titles.get(b, b)} · {plural(int(readers.get(b, 0)), 'lecteur')}",
                 key="new_choice",
             )
-            if st.button("Ajouter à mon étagère", disabled=len(picked) >= 12, key="new_add"):
-                picked.append(choice)
-                st.rerun()
+            st.button("Ajouter à mon étagère", disabled=len(picked) >= 12, key="new_add", on_click=_add_picked)
 
-    # shelf with the picked books (and empty slots up to 3)
-    slots = "".join(generated_cover(titles.get(b, b)) for b in picked)
-    slots += "".join('<div class="slot">+</div>' for _ in range(max(0, 3 - len(picked))))
-    md(f'<div style="display:flex;gap:14px;flex-wrap:wrap;margin:8px 0 10px">{slots}</div>')
-    if picked:
-        cols = st.columns(min(len(picked), 4))
-        for i, b in enumerate(list(picked)):
-            with cols[i % len(cols)]:
-                if st.button(f"Retirer « {short_title(titles.get(b, b), 28)} »", key=f"rm_{b}"):
+    # shelf: each cover with its own "Retirer" button below it, plus empty slots up to 3
+    n_cols = max(3, len(picked))
+    cols = st.columns(min(n_cols, 6))
+    for i in range(max(3, len(picked))):
+        with cols[i % len(cols)]:
+            if i < len(picked):
+                b = picked[i]
+                md(generated_cover(titles.get(b, b)))
+                if st.button("Retirer", key=f"rm_{b}", help=titles.get(b, b)):
                     picked.remove(b)
                     st.rerun()
+            else:
+                md('<div class="slot">+</div>')
+    if picked:
         poor = [titles.get(b, b) for b in picked if has_little_info(art, b)]
         if poor:
             st.caption("Peu d'informations (description ou tags) pour : " + " ; ".join(short_title(t, 40) for t in poor)
@@ -718,7 +745,7 @@ def show_new_reader(cfg: dict, art: dict) -> None:
 
     missing = 3 - len(picked)
     if missing > 0:
-        st.info(f"{plural(len(picked), 'livre')} choisi{'s' if len(picked) > 1 else ''} — "
+        st.info(f"{plural(len(picked), 'livre')} choisi{'s' if len(picked) > 1 else ''}{NBSP}— "
                 f"encore {missing} pour lancer les recommandations.")
         return
     st.caption(f"{plural(len(picked), 'livre')} choisis.")
@@ -738,6 +765,12 @@ def show_new_reader(cfg: dict, art: dict) -> None:
                          excluded="les livres choisis et leurs autres éditions sont exclus")
 
 
+def fr_axis(metric: str) -> str:
+    """Vega label expression: same format as the values (percent only for shares, comma decimals)."""
+    fmt = ".0%" if metric in PERCENT_METRICS else (".1f" if metric == "novelty" else ".2f")
+    return f"replace(format(datum.value, '{fmt}'), '.', ',')"
+
+
 def bar_chart(values: pd.Series, metric: str, highlight: str):
     """Static horizontal bar chart, sorted, the adaptive hybrid in the accent colour."""
     data = pd.DataFrame({"Modèle": values.index, "valeur": values.values})
@@ -746,7 +779,7 @@ def bar_chart(values: pd.Series, metric: str, highlight: str):
     base = alt.Chart(data).encode(
         y=alt.Y("Modèle:N", sort="-x", title=None, axis=alt.Axis(labelLimit=260, labelFontSize=13)),
         x=alt.X("valeur:Q", title=METRIC_LABEL.get(metric, metric),
-                axis=alt.Axis(labelFontSize=12, format=".0f" if metric == "novelty" else ".0%")),
+                axis=alt.Axis(labelFontSize=12, labelExpr=fr_axis(metric))),
     )
     bars = base.mark_bar(cornerRadiusEnd=3).encode(
         color=alt.condition("datum.accent", alt.value("#ff5a36"), alt.value("#4fd1b8")))
@@ -767,9 +800,10 @@ def tradeoff_chart(metrics: pd.DataFrame, highlight: str):
     data["dy"] = [-12 if i % 2 == 0 else 18 for i in range(len(data))]
     base = alt.Chart(data).encode(
         x=alt.X("Rappel@20:Q", title="Pertinence : rappel@20 →",
-                axis=alt.Axis(format=".0%", labelFontSize=12), scale=alt.Scale(zero=True, nice=True)),
+                axis=alt.Axis(labelExpr=fr_axis("all/recall@20"), labelFontSize=12),
+                scale=alt.Scale(zero=True, nice=True)),
         y=alt.Y("Part de pépites:Q", title="Découverte : part de pépites ↑",
-                axis=alt.Axis(format=".0%", labelFontSize=12), scale=alt.Scale(domain=[0, 1])),
+                axis=alt.Axis(labelExpr=fr_axis("tail_share"), labelFontSize=12), scale=alt.Scale(domain=[0, 1])),
     )
     points = base.mark_circle(size=220).encode(
         color=alt.condition("datum.accent", alt.value("#ff5a36"), alt.value("#4fd1b8")))
@@ -803,9 +837,14 @@ def show_results(cfg: dict, art: dict) -> None:
     gate_name = next((m for m in metrics.index if m.startswith(MODEL_LABEL["gate"])), None)
     n_users = int(raw["all/n_users"].iloc[0]) if "all/n_users" in raw.columns else None
 
+    total = art["train"].shape[0]
     heading("Évaluation expérimentale", "Les modèles, côte à côte",
-            f"Jeu de test : {fr_number(n_users, 0)} lecteurs, "
-            f"{fr_number(len(art['books']), 0)} livres." if n_users else "Jeu de test.")
+            (f"Jeu de test : {fr_number(n_users, 0)} lecteurs sur {fr_number(total, 0)} "
+             f"(les {fr_number(total - n_users, 0)} autres n'ont aucun livre en test, souvent parce qu'il "
+             f"n'était pas dans l'entraînement), {fr_number(len(art['books']), 0)} livres.")
+            if n_users and n_users < total else
+            (f"Jeu de test : {fr_number(n_users, 0)} lecteurs, {fr_number(len(art['books']), 0)} livres."
+             if n_users else "Jeu de test."))
 
     if {"all/recall@20", "tail_share"} <= set(metrics.columns):
         st.markdown("##### Pertinence ou découverte ?")
@@ -815,15 +854,17 @@ def show_results(cfg: dict, art: dict) -> None:
     desired = ["all/recall@20", "all/ndcg@20", "cold_items/recall@20", "cold_users/recall@20",
                "coverage", "novelty", "tail_share"]
     selected = [c for c in desired if c in metrics.columns]
-    display = pd.DataFrame({METRIC_LABEL[c]: [fr_metric(c, v) for v in metrics[c]] for c in selected},
-                           index=metrics.index)
+    display = pd.DataFrame({METRIC_SHORT.get(c, METRIC_LABEL[c]): [fr_metric(c, v) for v in metrics[c]]
+                            for c in selected}, index=metrics.index)
     display.index.name = "Modèle"
-    st.dataframe(display, **stretch())
+    st.dataframe(display, **stretch(),
+                 column_config={METRIC_SHORT.get(c, METRIC_LABEL[c]): st.column_config.TextColumn(
+                     help=METRIC_HELP.get(c, "")) for c in selected})
     with st.expander("Que mesure chaque colonne ?"):
         for c in selected:
             st.markdown(f"- **{METRIC_LABEL[c]}** — {METRIC_HELP[c]}")
         st.markdown(f"- La **variété des genres** n'est pas affichée : dans ce jeu de données presque "
-                    f"tous les livres ont le même genre principal (« comics »), elle ne distingue pas les modèles.")
+                    f"tous les livres ont le même genre principal («{NBSP}comics{NBSP}»), elle ne distingue pas les modèles.")
     st.download_button("Télécharger toutes les métriques (CSV)", raw.to_csv().encode("utf-8-sig"),
                        "bookrec_test_metrics.csv", "text/csv")
 
@@ -849,6 +890,12 @@ def show_results(cfg: dict, art: dict) -> None:
                 show[c] = [fr_metric(key, v) for v in show[c]]
             show["k"] = [fr_number(v, 0) for v in sweep["k"]]
             st.dataframe(show, hide_index=True, **stretch())
+            st.caption("Ces chiffres sont mesurés sur la validation. Sur le test, le rappel est plus bas "
+                       "(les livres à retrouver sont plus loin dans le temps), mais couverture et part de "
+                       "pépites sont presque identiques : les listes recommandées viennent du même "
+                       "entraînement, seuls les livres à retrouver changent.")
+    else:
+        st.info("Choix de k indisponible : lancez `python scripts/tune_k.py`, puis `python scripts/run_pipeline.py`.")
 
     st.write("")
     heading("Analyse visuelle", "Figures de l'expérience")
@@ -861,8 +908,10 @@ def show_results(cfg: dict, art: dict) -> None:
         ("Comparaison des modèles (toutes métriques)", "baseline_bars.png"),
     ]
     available = [(label, figures_dir / name) for label, name in figures if (figures_dir / name).exists()]
-    if not available:
-        st.info("Aucune figure enregistrée pour le moment.")
+    missing = [name for _, name in figures if not (figures_dir / name).exists()]
+    if missing:
+        st.info("Figures absentes : " + ", ".join(missing) + ". Elles sont produites par run_pipeline.py "
+                "et tune_k.py.")
     for label, path in available:
         with st.expander(label, expanded=(path.name == "tradeoff_curve.png")):
             st.image(str(path), **stretch())
@@ -891,7 +940,8 @@ def main() -> None:
         return
 
     with st.sidebar:
-        md(f'<div class="brand">Book<em>Rec</em></div><div class="brandsub">AU-DELÀ DES BEST{NBSP_HYPHEN}SELLERS</div>')
+        md(f'<div class="brand">Book<em>Rec</em></div><div class="brandsub">AU-DELÀ DES BEST{NBSP_HYPHEN}SELLERS</div>'
+           '<div class="credit">Projet Big Data · Ella &amp; Amine</div>')
         st.divider()
         page = st.radio(
             "Navigation",
@@ -904,8 +954,7 @@ def main() -> None:
         st.markdown(f"**{fr_number(len(art['books']), 0)}** livres")
         st.markdown(f"**{fr_number(art['train'].shape[0], 0)}** lecteurs")
         st.markdown(f"**k{NBSP}={NBSP}{fr_number(float(art['k']), 0)}** · {MODEL_LABEL['gate'].lower()}")
-        st.divider()
-        st.caption("Projet Big Data · Ella & Amine")
+
 
     if page == "Vue d'ensemble":
         show_dashboard(cfg, art)

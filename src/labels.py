@@ -77,6 +77,17 @@ METRIC_LABEL = {
     "genre_variety": "Variété des genres",
 }
 
+# short column headers for tables (full names in METRIC_LABEL / METRIC_HELP)
+METRIC_SHORT = {
+    "all/recall@20": "Rappel@20",
+    "all/ndcg@20": "NDCG@20",
+    "cold_items/recall@20": "Rappel nouv. livres",
+    "cold_users/recall@20": "Rappel nouv. lecteurs",
+    "coverage": "Couverture",
+    "novelty": "Nouveauté",
+    "tail_share": "Pépites",
+}
+
 METRIC_HELP = {
     "all/recall@20": "Part des livres réellement lus ensuite retrouvés dans le top 20 (plus haut = mieux).",
     "all/ndcg@20": "Comme le rappel, mais un bon livre compte plus s'il est en haut de la liste (plus haut = mieux).",

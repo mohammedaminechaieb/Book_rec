@@ -17,7 +17,7 @@ Output  : final report (PDF) + slides in reports/slides/
 | 4 | Data analysis and preparation: stats table, sparsity, popularity distribution, cleaning, split, cold-start simulation | 2 | 1.25 | Ella | Amine |
 | 5.1 | Base approaches: popularity, TF-IDF content | 3 | 0.75 | Ella | Amine |
 | 5.2 | Base approaches: ALS (embeddings = future work) | 3 | 0.75 | Amine | Ella |
-| 6 | Hybrid: weighted hybrid with an adaptive weight per book a = n/(n+k); why; how k is chosen (largest k within 5 % of the best validation NDCG@20, stated trade-off) | 4 | 1 | Amine | Ella |
+| 6 | Hybrid: weighted hybrid with an adaptive weight per book a = n/(n+k); why; how k is chosen (largest k within 5 % of the best validation NDCG@20, stated trade-off); rank normalisation and why min-max made the gate favour best-sellers (AI error found by the audit) | 4 | 1 | Amine | Ella |
 | 7 | Evaluation protocol: P/R/NDCG/HR@K, coverage, novelty, tail share (genre variety computed but not informative here); all / cold items / cold users; popularity classes (top 5 % / next 15 % / 80 %) | 5 | 0.75 | Ella | Amine |
 | 8 | Results: comparison table, cold-start results, trade-off curve, k sweep. Say honestly where the adaptive hybrid wins (new books) and where the fixed 50/50 hybrid is better (overall diversity), and why: the gate trusts ALS for books with many readers, and ALS favours popular books | 5 | 1.5 | Both | Both |
 | 9 | Demonstration: interface and explanations (screenshots) | 6 | 0.75 | Ella | Amine |

@@ -34,14 +34,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from sklearn.preprocessing import normalize
 
 from src.utils.config import load_config
 from src.utils.io import load_df, load_sparse
 
 from src.models.als_model import ALSModel
 from src.models.popularity import PopularityModel
-from src.models.hybrid_gate import HybridGate, minmax_rows
+from src.models.hybrid_gate import HybridGate, normalize_rows
 from src.models.content_tfidf import ContentTFIDFModel
 
 from src.editions import dedupe_candidates
@@ -225,6 +224,7 @@ def load_artifacts(cfg: dict) -> dict:
         n_items,
         k=None,
         fixed_alpha=cfg["gate"]["fixed_alpha"],
+        normalization=cfg["gate"].get("normalization", "rank"),
     )
 
     # Reconstruct hybrid model.
@@ -233,33 +233,46 @@ def load_artifacts(cfg: dict) -> dict:
         content,
         n_items,
         k=k,
+        normalization=cfg["gate"].get("normalization", "rank"),
     )
 
-    # Select active users for the Streamlit demo.
-    active_users = np.flatnonzero(
-        train.getnnz(axis=1) > 0
-    )
-
-    rng = np.random.default_rng(cfg["seed"])
-
-    n_demo = min(
-        cfg["app"]["n_demo_users"],
-        len(active_users),
-    )
-
-    if n_demo > 0:
-        selected = rng.choice(
-            active_users,
-            size=n_demo,
-            replace=False,
-        )
-    else:
-        selected = np.array([], dtype=int)
-
+    # Select the demo readers for the Streamlit app.
+    # Most users have short histories (after the 5-per-user filter and the
+    # time split, a user with 5 books keeps only 3 in train), and the
+    # simulated cold users keep exactly 3 on purpose. A demo needs readers
+    # with a real history, so: exclude cold users and prefer users with at
+    # least app.min_demo_books training books (random sample among them).
     idx2user = {
         idx: uid
         for uid, idx in user2idx.items()
     }
+
+    cold_path = processed / "cold_users.json"
+    cold_ids = (
+        set(_read_json(cold_path)["user_ids"])
+        if cold_path.exists()
+        else set()
+    )
+
+    books_per_user = train.getnnz(axis=1)
+    warm_users = np.array([
+        i for i in np.flatnonzero(books_per_user > 0)
+        if idx2user[int(i)] not in cold_ids
+    ], dtype=int)
+
+    min_books = int(cfg["app"].get("min_demo_books", 8))
+    n_wanted = int(cfg["app"]["n_demo_users"])
+
+    rich = warm_users[books_per_user[warm_users] >= min_books]
+
+    rng = np.random.default_rng(cfg["seed"])
+
+    if len(rich) >= n_wanted:
+        selected = rng.choice(rich, size=n_wanted, replace=False)
+    else:
+        # Not enough rich readers: take the longest histories first.
+        order = np.argsort(-books_per_user[warm_users], kind="stable")
+        selected = warm_users[order[:n_wanted]]
 
     demo_users = [
         idx2user[int(i)]
@@ -308,10 +321,13 @@ def _drop_other_editions(candidates: np.ndarray, reference_idx, books: pd.DataFr
                          top_n: int) -> np.ndarray:
     """Keep the first top_n candidates that are not editions of a reference book."""
     titles = books["title"].astype(str)
+    work = books["work_id"].astype(str) if "work_id" in books.columns else None
     keep = dedupe_candidates(
         [titles.iloc[i] for i in candidates],
         [titles.iloc[i] for i in reference_idx],
         top_n,
+        candidate_work_ids=[work.iloc[i] for i in candidates] if work is not None else None,
+        reference_work_ids=[work.iloc[i] for i in reference_idx] if work is not None else None,
     )
     return candidates[keep]
 
@@ -355,8 +371,9 @@ def recommend_for_user(
     scores = np.asarray(models[model_name].score(batch), dtype=float)[0].copy()
 
     # Normalized branch scores (the values the gate mixes) for explanations.
-    cf_scores = minmax_rows(art["als"].score(batch))[0]
-    content_scores = minmax_rows(art["content"].score(batch))[0]
+    norm = art["cfg"]["gate"].get("normalization", "rank")
+    cf_scores = normalize_rows(art["als"].score(batch), norm)[0]
+    content_scores = normalize_rows(art["content"].score(batch), norm)[0]
 
     train = art["train"]
     books = art["books"]
@@ -392,6 +409,7 @@ def recommend_for_user(
             top_shelves=cfg["app"]["explain_top_shelves"],
             cold_threshold=cfg["cold_start"]["cold_threshold"],
             exclude_shelves=art["common_shelves"],
+            item_factors=art["als"].item_factors,
             alpha=art["cfg"]["gate"]["fixed_alpha"] if model_name == "fixed" else None,
             mode={"content": "content", "als": "als", "popularity": "als",
                   "fixed": "fixed"}.get(model_name, "gate"),
@@ -431,8 +449,9 @@ def recommend_for_new_reader(
     """
     Generate recommendations for a new reader.
 
-    Since the reader has no ALS factors, use TF-IDF
-    similarity based on selected liked books (alpha = 0).
+    Since the reader has no ALS factors, use TF-IDF similarity
+    (alpha = 0): each picked book proposes its nearest books in turn,
+    so every picked book influences the list.
     Other editions of the picked books are skipped.
     """
     _validate_top_n(top_n)
@@ -448,17 +467,29 @@ def recommend_for_new_reader(
 
     item_vectors = art["item_vectors"]
 
-    # Build a mean profile from selected book vectors, then L2-normalize it.
-    profile = normalize(np.asarray(item_vectors[selected_idx].mean(axis=0)), norm="l2")
+    # Each picked book proposes its own nearest books, in turn (round-robin).
+    # With a single averaged profile, a book with a long description could
+    # dominate and another picked book would have no visible effect.
+    books = art["books"]
+    sims = np.asarray((item_vectors[selected_idx] @ item_vectors.T).todense())   # picked x books
+    sims[:, selected_idx] = -np.inf
+    ranked = np.argsort(-sims, axis=1, kind="stable")
 
-    # Cosine similarity between profile and all books.
-    scores = np.asarray(item_vectors @ profile.T).ravel().astype(float)
+    candidates, anchor_of, used = [], {}, set()
+    for r in range(ranked.shape[1]):
+        for j in range(len(selected_idx)):
+            b = int(ranked[j, r])
+            if b in used or not np.isfinite(sims[j, b]):
+                continue
+            used.add(b)
+            candidates.append(b)
+            anchor_of[b] = selected_idx[j]
+        if len(candidates) >= top_n * CANDIDATE_FACTOR:
+            break
 
     # Exclude the selected books and their other editions.
-    scores[selected_idx] = -np.inf
-    books = art["books"]
-    candidates = _ranked_candidates(scores, top_n * CANDIDATE_FACTOR)
-    chosen = _drop_other_editions(candidates, selected_idx, books, top_n)
+    chosen = _drop_other_editions(np.array(candidates, dtype=int), selected_idx, books, top_n)
+    scores = sims.max(axis=0)
 
     if chosen.size == 0:
         return pd.DataFrame(columns=COLUMNS)
@@ -472,9 +503,8 @@ def recommend_for_new_reader(
     for rank, book_idx in enumerate(chosen, start=1):
         book_idx = int(book_idx)
 
-        # Find the selected book most similar to the candidate.
-        similarities = (item_vectors[selected_idx] @ item_vectors[book_idx].T).toarray().ravel()
-        closest = selected_idx[int(np.argmax(similarities))]
+        # The picked book that proposed this candidate.
+        closest = anchor_of[book_idx]
         closest_title = str(books.iloc[closest]["title"]).strip().rstrip(".").strip()
 
         # Find shared, informative shelf tags.

@@ -10,8 +10,16 @@ What it does:
     score(u, i) = alpha_i * CF(u, i) + (1 - alpha_i) * CONTENT(u, i)
   n_i = number of training interactions of book i. A book with n_i = 0 is
   ranked on content alone; a popular book mostly on CF. k = 0 means CF only
-  for every book with n_i > 0. Both score matrices are min-max normalised per
-  user before they are mixed. It also supports a fixed alpha (50/50 baseline).
+  for every book with n_i > 0. Both score matrices are normalised per user
+  before they are mixed. It also supports a fixed alpha (50/50 baseline).
+  Normalisation (config gate.normalization):
+    "rank"   (default) each score becomes its percentile among the user's books
+             (0 = worst, 1 = best). Both branches then have the same spread.
+    "minmax" (x - min) / (max - min). Kept for comparison: TF-IDF cosine scores
+             are concentrated near 0 while ALS scores are not, so after min-max
+             the content branch is systematically lower. Books that the gate
+             sends to content (rare books) are then pushed down, which made the
+             gate favour best-sellers.
   k is the number of interactions at which CF and content weigh the same
   (alpha = 0.5 when n_i = k).
 Input:
@@ -45,14 +53,44 @@ def minmax_rows(scores: np.ndarray) -> np.ndarray:
     return (scores - lo) / span
 
 
-def combine(cf_scores: np.ndarray, content_scores: np.ndarray, alpha) -> np.ndarray:
-    """alpha * CF + (1 - alpha) * content, after per-user min-max normalisation.
+def rank_rows(scores: np.ndarray) -> np.ndarray:
+    """Rescale each row (one user) to its percentile ranks in [0, 1] (ties get the same rank)."""
+    scores = np.asarray(scores, dtype=np.float64)
+    n = scores.shape[1]
+    if n < 2:
+        return np.zeros_like(scores)
+    order = np.argsort(scores, axis=1, kind="stable")
+    ranks = np.empty_like(order, dtype=np.float64)
+    rows = np.arange(scores.shape[0])[:, None]
+    ranks[rows, order] = np.arange(n, dtype=np.float64)
+    # equal scores (e.g. many zeros) get the same, average-free lowest rank of their group
+    sorted_scores = np.take_along_axis(scores, order, axis=1)
+    new_group = np.ones_like(sorted_scores, dtype=bool)
+    new_group[:, 1:] = sorted_scores[:, 1:] != sorted_scores[:, :-1]
+    group_start = np.where(new_group, np.arange(n), 0)
+    group_start = np.maximum.accumulate(group_start, axis=1).astype(np.float64)
+    ranks[rows, order] = group_start
+    return ranks / (n - 1)
+
+
+def normalize_rows(scores: np.ndarray, method: str = "rank") -> np.ndarray:
+    """Per-user normalisation used before mixing: "rank" (default) or "minmax"."""
+    if method == "rank":
+        return rank_rows(scores)
+    if method == "minmax":
+        return minmax_rows(scores)
+    raise ValueError(f"Unknown normalisation: {method}")
+
+
+def combine(cf_scores: np.ndarray, content_scores: np.ndarray, alpha,
+            method: str = "rank") -> np.ndarray:
+    """alpha * CF + (1 - alpha) * content, after per-user normalisation.
 
     alpha: one value (fixed baseline) or one value per book (gate).
     Kept separate so tune_k.py can reuse the same score matrices for every k.
     """
     alpha = np.asarray(alpha, dtype=np.float64)
-    return alpha * minmax_rows(cf_scores) + (1.0 - alpha) * minmax_rows(content_scores)
+    return alpha * normalize_rows(cf_scores, method) + (1.0 - alpha) * normalize_rows(content_scores, method)
 
 
 def counts_to_array(counts: pd.Series, book2idx: dict) -> np.ndarray:
@@ -65,11 +103,13 @@ def counts_to_array(counts: pd.Series, book2idx: dict) -> np.ndarray:
 
 class HybridGate:
     def __init__(self, cf_model, content_model, n_items: np.ndarray,
-                 k: float | None = 20, fixed_alpha: float | None = None):
+                 k: float | None = 20, fixed_alpha: float | None = None,
+                 normalization: str = "rank"):
         if k is None and fixed_alpha is None:
             raise ValueError("Give k (gate) or fixed_alpha (fixed baseline).")
         self.cf, self.content, self.n, self.k, self.fixed_alpha = (
             cf_model, content_model, np.asarray(n_items, dtype=np.float64), k, fixed_alpha)
+        self.normalization = normalization
         self.alpha = self._compute_alpha()
 
     def _compute_alpha(self) -> np.ndarray:
@@ -86,4 +126,5 @@ class HybridGate:
     def score(self, user_idx: np.ndarray) -> np.ndarray:
         """Hybrid scores for a batch of users -> (len(user_idx), n_books)."""
         user_idx = np.asarray(user_idx)
-        return combine(self.cf.score(user_idx), self.content.score(user_idx), self.alpha)
+        return combine(self.cf.score(user_idx), self.content.score(user_idx), self.alpha,
+                       self.normalization)

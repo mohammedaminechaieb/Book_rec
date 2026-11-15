@@ -203,13 +203,14 @@ def step_models(cfg: dict, m: dict, k: float) -> dict:
     io.save_sparse(tfidf.item_vectors, P / "tfidf_items.npz")
 
     L = MODEL_LABEL                                      # French display names (src/labels.py)
+    norm = cfg["gate"].get("normalization", "rank")      # same scaling as tune_k.py and the app
     models = {
         L["popularity"]: pop,
         L["als"]: als,
         L["content"]: tfidf,
         L["fixed"]: HybridGate(als, tfidf, n_items, k=None,
-                               fixed_alpha=cfg["gate"]["fixed_alpha"]),
-        f"{L['gate']} (k={k:g})": HybridGate(als, tfidf, n_items, k=k),
+                               fixed_alpha=cfg["gate"]["fixed_alpha"], normalization=norm),
+        f"{L['gate']} (k={k:g})": HybridGate(als, tfidf, n_items, k=k, normalization=norm),
     }
     if cfg["embeddings"]["enabled"]:                     # optional "recent approach"
         def fit_embeddings():
@@ -220,7 +221,8 @@ def step_models(cfg: dict, m: dict, k: float) -> dict:
         emb = optional(fit_embeddings, "embeddings")
         if emb is not None:
             models[L["embeddings"]] = emb
-            models[f"{L['gate']} + embeddings (k={k:g})"] = HybridGate(als, emb, n_items, k=k)
+            models[f"{L['gate']} + embeddings (k={k:g})"] = HybridGate(als, emb, n_items, k=k,
+                                                                        normalization=norm)
     return models
   
 def step_evaluate(cfg: dict, m: dict, models: dict, test, cold_books, cold_users,

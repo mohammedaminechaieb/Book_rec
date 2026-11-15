@@ -61,3 +61,11 @@ def test_explanation_is_french():
     out = explain(0, 2, train, vecs, books, np.array([500, 300, 2]), k=20, cf_score=0.7, content_score=0.9)
     assert out["sentence"].startswith("Parce que vous avez aimé « Watchmen »")
     assert ".." not in out["sentence"] and "Because" not in out["sentence"]
+
+
+def test_shelf_key_merges_variants():
+    from src.explain import shelf_key, shared_shelves
+    assert shelf_key("Cómics") == shelf_key("comics") == shelf_key("COMICS")
+    assert shelf_key("non-fiction") == shelf_key("nonfiction")
+    out = shared_shelves(["non-fiction", "nonfiction", "memoir"], [["nonfiction", "memoir"]], top=3)
+    assert out == ["non-fiction", "memoir"]

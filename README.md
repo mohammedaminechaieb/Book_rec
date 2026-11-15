@@ -23,7 +23,9 @@ Niche books stay invisible. This is **popularity bias**.
 - **Recent approach (future work, not implemented):** frozen sentence embeddings (all-MiniLM-L6-v2),
   stub in `src/models/content_embeddings.py`; keep `embeddings.enabled: false`.
 - **Hybrid gate (weighted hybrid, adaptive weight per book):** `score = a * CF + (1 - a) * content`,
-  `a = n / (n + k)`. k is chosen on validation with a stated trade-off: the **largest k whose
+  `a = n / (n + k)`. Before mixing, each branch's scores are turned into **per-user percentile ranks**
+  (`gate.normalization: rank`). With min-max scaling, TF-IDF scores stay near 0 while ALS scores do not,
+  so the books the gate sends to content (rare books) were pushed down and the gate favoured best-sellers. k is chosen on validation with a stated trade-off: the **largest k whose
   NDCG@20 stays within 5 %** of the best (`gate.ndcg_tolerance`), because a larger k sends more
   weight to content, i.e. to long-tail and new books.
 - **Explanations (in French):** closest liked book, shared informative tags (storage shelves such as
@@ -33,7 +35,10 @@ Niche books stay invisible. This is **popularity bias**.
   books, *intermédiaire* = next 15 %, *pépite* = the other 80 % (the long tail, same definition as
   the `tail_share` metric).
 - **Editions:** Goodreads lists each edition separately; other editions of a book already read or
-  picked are never recommended (`src/editions.py`).
+  picked, collected editions ("The Complete Maus", "(Persepolis #1-4)") and duplicates inside a list
+  are never recommended (`src/editions.py`, using the Goodreads `work_id` when present).
+- **Demo readers:** not the simulated cold users, and at least 8 training books (`app.min_demo_books`):
+  after the 5-per-user filter and the time split many users keep only 3 books in training.
 
 ## 3. Evaluation (assignment step 5)
 - Accuracy: Precision@K, Recall@K, NDCG@K, HR@K for K = 5, 10, 20.
