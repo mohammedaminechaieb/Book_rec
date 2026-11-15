@@ -1,0 +1,12 @@
+{
+  "k": 5.0,
+  "selection_metric": "validation_ndcg@20",
+  "selection_rule": "largest k with NDCG@20 >= 0.95 x best NDCG@20",
+  "ndcg_tolerance": 0.05,
+  "best_ndcg": 0.15987791920048366,
+  "ndcg": 0.15635647579934983,
+  "recall": 0.28316469344859513,
+  "cold_recall": 0.02290380128996844,
+  "coverage": 0.29789143113503813,
+  "tail_share": 0.09157973174366617
+}
