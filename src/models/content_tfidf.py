@@ -32,6 +32,8 @@ import scipy.sparse as sp
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import normalize
 
+from src.explain import is_generic_shelf
+
 
 class ContentTFIDFModel:
 
@@ -61,6 +63,8 @@ class ContentTFIDFModel:
 
         Shelf tags such as 'historical fiction' become
         'historical_fiction' so they are treated as one token.
+        Storage / status shelves ('to-read', 'owned', 'read-2016'...)
+        say nothing about the content and are left out.
         """
 
         documents = []
@@ -84,7 +88,7 @@ class ContentTFIDFModel:
                     tags = []
 
                     for shelf in shelves:
-                        if not isinstance(shelf, str):
+                        if not isinstance(shelf, str) or is_generic_shelf(shelf):
                             continue
 
                         tag = shelf.strip().lower()

@@ -1,4 +1,17 @@
-
+"""
+==============================================================================
+File      : tests/test_popularity_ella.py
+Project   : book_rec - Reducing popularity bias in book recommendation
+Owner     : Ella (lead)  |  Amine (co-owner)
+------------------------------------------------------------------------------
+What it does:
+  Unit tests for src/models/popularity.py: same popularity scores for every user, errors before fit.
+  Note: these tests were written by the author of the code; the cross-testing
+  rule (each person tests the other's code) applies to the other test files.
+Input:  small CSR matrices
+Output: pytest pass / fail
+==============================================================================
+"""
 import numpy as np
 import scipy.sparse as sp
 import pytest

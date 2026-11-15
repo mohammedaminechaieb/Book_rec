@@ -1,4 +1,17 @@
-
+"""
+==============================================================================
+File      : tests/test_plots_ella.py
+Project   : book_rec - Reducing popularity bias in book recommendation
+Owner     : Ella (lead)  |  Amine (co-owner)
+------------------------------------------------------------------------------
+What it does:
+  Unit tests for src/visualization/plots.py: every figure function writes a PNG without error.
+  Note: these tests were written by the author of the code; the cross-testing
+  rule (each person tests the other's code) applies to the other test files.
+Input:  small arrays / DataFrames, pytest tmp_path
+Output: pytest pass / fail
+==============================================================================
+"""
 import numpy as np
 import pandas as pd
 

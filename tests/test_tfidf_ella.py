@@ -1,4 +1,17 @@
-
+"""
+==============================================================================
+File      : tests/test_tfidf_ella.py
+Project   : book_rec - Reducing popularity bias in book recommendation
+Owner     : Ella (lead)  |  Amine (co-owner)
+------------------------------------------------------------------------------
+What it does:
+  Unit tests for src/models/content_tfidf.py: text building, shapes, similar books score higher, cold books and users.
+  Note: these tests were written by the author of the code; the cross-testing
+  rule (each person tests the other's code) applies to the other test files.
+Input:  3 toy books and a small CSR matrix
+Output: pytest pass / fail
+==============================================================================
+"""
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp

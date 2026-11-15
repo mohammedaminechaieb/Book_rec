@@ -19,7 +19,9 @@ Input:
   - results/tables/best_k.json (optional)
 
 Output:
-  - DataFrame [rank, title, score, alpha, popularity, explanation]
+  - DataFrame [rank, book_id, title, score, n, alpha, cf_share, content_share,
+               popularity, explanation]   (popularity = head / mid / tail, see src/labels.py)
+  - editions of a book already read / picked are never recommended (src/editions.py)
   - results/tables/demo_<user_id>.csv
 ==============================================================================
 """
@@ -42,21 +44,32 @@ from src.models.popularity import PopularityModel
 from src.models.hybrid_gate import HybridGate, minmax_rows
 from src.models.content_tfidf import ContentTFIDFModel
 
+from src.editions import dedupe_candidates
 from src.explain import (
     explain,
+    frequent_shelves,
     popularity_label,
     shared_shelves,
 )
+from src.labels import NBSP, popularity_thresholds
 
 
 COLUMNS = [
     "rank",
+    "book_id",
     "title",
     "score",
+    "n",
     "alpha",
+    "cf_share",
+    "content_share",
     "popularity",
     "explanation",
 ]
+
+# How many extra candidates to look at, so that removing other editions
+# of already-read books still leaves top_n recommendations.
+CANDIDATE_FACTOR = 5
 
 
 def _read_json(path: Path) -> dict:
@@ -205,6 +218,15 @@ def load_artifacts(cfg: dict) -> dict:
     else:
         k = float(cfg["gate"]["k"])
 
+    # Fixed 50/50 baseline, so the demo can show it too.
+    fixed_gate = HybridGate(
+        als,
+        content,
+        n_items,
+        k=None,
+        fixed_alpha=cfg["gate"]["fixed_alpha"],
+    )
+
     # Reconstruct hybrid model.
     gate = HybridGate(
         als,
@@ -244,8 +266,16 @@ def load_artifacts(cfg: dict) -> dict:
         for i in selected
     ]
 
+    # Tags carried by more than 30 % of the books ("comics", "graphic-novels")
+    # explain nothing in a comics dataset: never show them as shared tags.
+    common_shelves = frequent_shelves(
+        _shelves(value) for value in books["shelves"]
+    )
+
     return {
         "cfg": cfg,
+        "common_shelves": common_shelves,
+        "pop_thresholds": popularity_thresholds(n_items),
         "train": train,
         "books": books,
         "user2idx": user2idx,
@@ -257,9 +287,33 @@ def load_artifacts(cfg: dict) -> dict:
         "content": content,
         "popularity_model": popularity,
         "gate": gate,
+        "fixed_gate": fixed_gate,
         "k": k,
         "demo_users": demo_users,
     }
+
+
+def _ranked_candidates(scores: np.ndarray, n_wanted: int) -> np.ndarray:
+    """Indices of the n_wanted best finite scores, best first."""
+    scores = np.asarray(scores, dtype=float).copy()
+    scores[~np.isfinite(scores)] = -np.inf
+    candidates = np.flatnonzero(np.isfinite(scores))
+    if candidates.size == 0:
+        return candidates
+    order = np.argsort(-scores[candidates], kind="stable")
+    return candidates[order[:n_wanted]]
+
+
+def _drop_other_editions(candidates: np.ndarray, reference_idx, books: pd.DataFrame,
+                         top_n: int) -> np.ndarray:
+    """Keep the first top_n candidates that are not editions of a reference book."""
+    titles = books["title"].astype(str)
+    keep = dedupe_candidates(
+        [titles.iloc[i] for i in candidates],
+        [titles.iloc[i] for i in reference_idx],
+        top_n,
+    )
+    return candidates[keep]
 
 
 def recommend_for_user(
@@ -272,145 +326,101 @@ def recommend_for_user(
     Recommend unseen books to an existing user.
 
     Supported models:
-        gate, als, content, popularity
+        gate, fixed (50/50), als, content, popularity
+    Other editions of books the user already read are skipped.
     """
-
     _validate_top_n(top_n)
 
     user_id = str(user_id)
     user2idx = art["user2idx"]
 
     if user_id not in user2idx:
-        raise ValueError(
-            f"Unknown user: {user_id}"
-        )
+        raise ValueError(f"Unknown user: {user_id}")
 
     models = {
         "gate": art["gate"],
+        "fixed": art["fixed_gate"],
         "als": art["als"],
         "content": art["content"],
         "popularity": art["popularity_model"],
     }
 
     if model_name not in models:
-        raise ValueError(
-            f"Unknown model: {model_name}"
-        )
+        raise ValueError(f"Unknown model: {model_name}")
 
     user_idx = user2idx[user_id]
     batch = np.array([user_idx])
 
     # Compute recommendation scores.
-    model = models[model_name]
+    scores = np.asarray(models[model_name].score(batch), dtype=float)[0].copy()
 
-    scores = np.asarray(
-        model.score(batch),
-        dtype=float,
-    )[0].copy()
-
-    # Get normalized branch scores for explanations.
-    cf_scores = minmax_rows(
-        art["als"].score(batch)
-    )[0]
-
-    content_scores = minmax_rows(
-        art["content"].score(batch)
-    )[0]
+    # Normalized branch scores (the values the gate mixes) for explanations.
+    cf_scores = minmax_rows(art["als"].score(batch))[0]
+    content_scores = minmax_rows(art["content"].score(batch))[0]
 
     train = art["train"]
+    books = art["books"]
+    n_items = art["n_items"]
 
-    # Do not recommend already-read books.
+    # Do not recommend already-read books, nor other editions of them.
     seen = train[user_idx].indices
-
     scores[seen] = -np.inf
+    candidates = _ranked_candidates(scores, top_n * CANDIDATE_FACTOR)
+    selected_books = _drop_other_editions(candidates, seen, books, top_n)
 
-    # Exclude invalid scores.
-    scores[~np.isfinite(scores)] = -np.inf
-
-    candidates = np.flatnonzero(
-        np.isfinite(scores)
-    )
-
-    if candidates.size == 0:
+    if selected_books.size == 0:
         return pd.DataFrame(columns=COLUMNS)
 
-    n_select = min(
-        top_n,
-        len(candidates)
-    )
-
-    order = np.argsort(
-        -scores[candidates],
-        kind="stable"
-    )[:n_select]
-
-    selected_books = candidates[order]
-
+    cfg = art["cfg"]
     rows = []
 
-    for rank, book_idx in enumerate(
-        selected_books,
-        start=1
-    ):
-
+    for rank, book_idx in enumerate(selected_books, start=1):
         book_idx = int(book_idx)
+        n = int(n_items[book_idx])
 
-        if model_name == "als":
-            alpha_override = 1.0
-
-        elif model_name == "content":
-            alpha_override = 0.0
-
-        elif model_name == "popularity":
-            alpha_override = 1.0
-
-        else:
-            alpha_override = None
-
-        # Explanation generated by Amine's module.
+        # Explanation generated by Amine's module, written for the model shown.
         details = explain(
             user_idx=user_idx,
             book_idx=book_idx,
             train=train,
             item_vectors=art["item_vectors"],
-            books=art["books"],
-            n_items=art["n_items"],
+            books=books,
+            n_items=n_items,
             k=art["k"],
             cf_score=float(cf_scores[book_idx]),
             content_score=float(content_scores[book_idx]),
-            top_shelves=art["cfg"]["app"]["explain_top_shelves"],
-            alpha=alpha_override,
-            cold_threshold=art["cfg"]["cold_start"]["cold_threshold"],
+            top_shelves=cfg["app"]["explain_top_shelves"],
+            cold_threshold=cfg["cold_start"]["cold_threshold"],
+            exclude_shelves=art["common_shelves"],
+            alpha=art["cfg"]["gate"]["fixed_alpha"] if model_name == "fixed" else None,
+            mode={"content": "content", "als": "als", "popularity": "als",
+                  "fixed": "fixed"}.get(model_name, "gate"),
         )
 
         explanation = details["sentence"]
+        is_hybrid = model_name in ("gate", "fixed")
 
         if model_name == "popularity":
             explanation = (
-                "Recommended because this book has "
-                f"{int(art['n_items'][book_idx])} "
-                "training interactions."
+                "Recommandé car c'est l'un des livres les plus lus "
+                f"({n}{NBSP}lecteurs dans l'entraînement)."
             )
 
         rows.append({
             "rank": rank,
-            "title": str(
-                art["books"].iloc[book_idx]["title"]
-            ),
+            "book_id": str(books.iloc[book_idx]["book_id"]),
+            "title": str(books.iloc[book_idx]["title"]),
             "score": float(scores[book_idx]),
-            "alpha": (
-                float("nan")
-                if model_name == "popularity"
-                else float(details["alpha"])
-            ),
+            "n": n,
+            # The ALS / content split only means something for the hybrid.
+            "alpha": float(details["alpha"]) if is_hybrid else float("nan"),
+            "cf_share": float(details["cf_share"]) if is_hybrid else float("nan"),
+            "content_share": float(details["content_share"]) if is_hybrid else float("nan"),
             "popularity": details["popularity"],
             "explanation": explanation,
         })
 
-    return pd.DataFrame(
-        rows,
-        columns=COLUMNS
-    )
+    return pd.DataFrame(rows, columns=COLUMNS)
 
 
 def recommend_for_new_reader(
@@ -422,143 +432,79 @@ def recommend_for_new_reader(
     Generate recommendations for a new reader.
 
     Since the reader has no ALS factors, use TF-IDF
-    similarity based on selected liked books.
+    similarity based on selected liked books (alpha = 0).
+    Other editions of the picked books are skipped.
     """
-
     _validate_top_n(top_n)
 
     book2idx = art["book2idx"]
 
     # Remove duplicate selected IDs.
-    selected_ids = list(
-        dict.fromkeys(
-            str(book_id)
-            for book_id in book_ids
-        )
-    )
-
-    selected_idx = [
-        book2idx[book_id]
-        for book_id in selected_ids
-        if book_id in book2idx
-    ]
+    selected_ids = list(dict.fromkeys(str(book_id) for book_id in book_ids))
+    selected_idx = [book2idx[book_id] for book_id in selected_ids if book_id in book2idx]
 
     if not selected_idx:
-        raise ValueError(
-            "Choose at least one known book."
-        )
+        raise ValueError("Choose at least one known book.")
 
     item_vectors = art["item_vectors"]
 
-    # Build a mean profile from selected book vectors.
-    profile = np.asarray(
-        item_vectors[selected_idx].mean(axis=0)
-    )
-
-    # L2 normalization.
-    profile = normalize(
-        profile,
-        norm="l2"
-    )
+    # Build a mean profile from selected book vectors, then L2-normalize it.
+    profile = normalize(np.asarray(item_vectors[selected_idx].mean(axis=0)), norm="l2")
 
     # Cosine similarity between profile and all books.
-    scores = np.asarray(
-        item_vectors @ profile.T
-    ).ravel().astype(float)
+    scores = np.asarray(item_vectors @ profile.T).ravel().astype(float)
 
-    # Exclude the selected books.
+    # Exclude the selected books and their other editions.
     scores[selected_idx] = -np.inf
+    books = art["books"]
+    candidates = _ranked_candidates(scores, top_n * CANDIDATE_FACTOR)
+    chosen = _drop_other_editions(candidates, selected_idx, books, top_n)
 
-    # Ignore invalid scores.
-    scores[~np.isfinite(scores)] = -np.inf
-
-    candidates = np.flatnonzero(
-        np.isfinite(scores)
-    )
-
-    if candidates.size == 0:
+    if chosen.size == 0:
         return pd.DataFrame(columns=COLUMNS)
 
-    n_select = min(
-        top_n,
-        len(candidates)
-    )
-
-    order = np.argsort(
-        -scores[candidates],
-        kind="stable"
-    )[:n_select]
-
-    chosen = candidates[order]
-
-    books = art["books"]
     n_items = art["n_items"]
-
-    liked_shelves = [
-        _shelves(books.iloc[i]["shelves"])
-        for i in selected_idx
-    ]
+    cfg = art["cfg"]
+    liked_shelves = [_shelves(books.iloc[i]["shelves"]) for i in selected_idx]
 
     rows = []
 
-    for rank, book_idx in enumerate(
-        chosen,
-        start=1
-    ):
-
+    for rank, book_idx in enumerate(chosen, start=1):
         book_idx = int(book_idx)
 
         # Find the selected book most similar to the candidate.
-        similarities = (
-            item_vectors[selected_idx]
-            @ item_vectors[book_idx].T
-        ).toarray().ravel()
+        similarities = (item_vectors[selected_idx] @ item_vectors[book_idx].T).toarray().ravel()
+        closest = selected_idx[int(np.argmax(similarities))]
+        closest_title = str(books.iloc[closest]["title"]).strip().rstrip(".").strip()
 
-        closest = selected_idx[
-            int(np.argmax(similarities))
-        ]
-
-        # Find shared shelf tags.
+        # Find shared, informative shelf tags.
         tags = shared_shelves(
             _shelves(books.iloc[book_idx]["shelves"]),
             liked_shelves,
-            top=art["cfg"]["app"]["explain_top_shelves"],
+            top=cfg["app"]["explain_top_shelves"],
+            exclude=art["common_shelves"],
         )
 
-        explanation = (
-            f"Because you liked {books.iloc[closest]['title']}."
-        )
-
+        explanation = f"Parce que vous avez aimé « {closest_title} »."
         if tags:
-            explanation += (
-                " Shared tags: "
-                + ", ".join(tags)
-                + "."
-            )
+            explanation += f" Tags communs{NBSP}: " + ", ".join(tags) + "."
+        explanation += " Recommandé par similarité de contenu."
 
-        explanation += (
-            " Recommended using content similarity."
-        )
-
+        n = int(n_items[book_idx])
         rows.append({
             "rank": rank,
-            "title": str(
-                books.iloc[book_idx]["title"]
-            ),
+            "book_id": str(books.iloc[book_idx]["book_id"]),
+            "title": str(books.iloc[book_idx]["title"]),
             "score": float(scores[book_idx]),
+            "n": n,
             "alpha": 0.0,
-            "popularity": popularity_label(
-                int(n_items[book_idx]),
-                n_items,
-                art["cfg"]["cold_start"]["cold_threshold"],
-            ),
+            "cf_share": 0.0,
+            "content_share": 1.0,
+            "popularity": popularity_label(n, n_items),
             "explanation": explanation,
         })
 
-    return pd.DataFrame(
-        rows,
-        columns=COLUMNS
-    )
+    return pd.DataFrame(rows, columns=COLUMNS)
 
 
 def main() -> None:
@@ -578,6 +524,7 @@ def main() -> None:
         "--model",
         choices=[
             "gate",
+            "fixed",
             "als",
             "content",
             "popularity",

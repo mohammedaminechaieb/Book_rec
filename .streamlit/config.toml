@@ -1,0 +1,15 @@
+# Owner: shared (Amine + Ella) | Purpose: Streamlit settings for the demo
+# Dark theme to match the app's CSS (otherwise default text can be dark on dark),
+# and a "viewer" toolbar so the Deploy button is hidden during the defense.
+[theme]
+base = "dark"
+primaryColor = "#ff5a36"
+backgroundColor = "#100f0d"
+secondaryBackgroundColor = "#1a1815"
+textColor = "#f1e8d6"
+
+[client]
+toolbarMode = "viewer"
+
+[browser]
+gatherUsageStats = false

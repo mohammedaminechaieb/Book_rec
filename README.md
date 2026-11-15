@@ -15,18 +15,30 @@ Niche books stay invisible. This is **popularity bias**.
 ## 2. Method
 
     Interactions + books -> stats + cleaning + split -> cold-start simulation
-      -> ALS (CF) + TF-IDF (content) [+ MiniLM embeddings, optional]
+      -> ALS (CF) + TF-IDF (content)
       -> per-book gate -> top-N + explanation -> accuracy + exposure metrics
 
 - **Collaborative:** implicit-feedback ALS.
 - **Content:** TF-IDF of the description + popular shelves; the user profile is the mean of the books they liked.
-- **Optional recent approach:** frozen sentence embeddings (all-MiniLM-L6-v2).
-- **Hybrid gate:** `score = a * CF + (1 - a) * content`, `a = n / (n + k)`, with k tuned on validation.
-- **Explanations:** closest liked book, shared shelves, CF vs content share, popularity label.
+- **Recent approach (future work, not implemented):** frozen sentence embeddings (all-MiniLM-L6-v2),
+  stub in `src/models/content_embeddings.py`; keep `embeddings.enabled: false`.
+- **Hybrid gate (weighted hybrid, adaptive weight per book):** `score = a * CF + (1 - a) * content`,
+  `a = n / (n + k)`. k is chosen on validation with a stated trade-off: the **largest k whose
+  NDCG@20 stays within 5 %** of the best (`gate.ndcg_tolerance`), because a larger k sends more
+  weight to content, i.e. to long-tail and new books.
+- **Explanations (in French):** closest liked book, shared informative tags (storage shelves such as
+  `to-read` and near-universal ones such as `comics` are ignored), share of the score from ALS and
+  from content, popularity class.
+- **Popularity classes** (one vocabulary everywhere, `src/labels.py`): *best-seller* = top 5 % most-read
+  books, *intermédiaire* = next 15 %, *pépite* = the other 80 % (the long tail, same definition as
+  the `tail_share` metric).
+- **Editions:** Goodreads lists each edition separately; other editions of a book already read or
+  picked are never recommended (`src/editions.py`).
 
 ## 3. Evaluation (assignment step 5)
 - Accuracy: Precision@K, Recall@K, NDCG@K, HR@K for K = 5, 10, 20.
-- Beyond accuracy: coverage, novelty, genre variety, tail share.
+- Beyond accuracy: coverage, novelty, tail share (genre variety is computed but not used:
+  almost every book's main genre is "comics" in this subset, so it does not separate the models).
 - Compared: Popularity, ALS only, Content only, fixed 50/50, gated hybrid.
 - Subsets: all users; **cold items** (simulated new books); **cold users** (simulated new readers).
 
@@ -35,10 +47,10 @@ Niche books stay invisible. This is **popularity bias**.
 |---|---|
 | 1. Domain and dataset | `src/data/download.py`, `src/data/load.py` |
 | 2. Statistics, sparsity, popularity, cleaning, split | `src/data/stats.py`, `clean.py`, `split.py`, `notebooks/01_eda.ipynb` |
-| 3. At least two base approaches | `src/models/als_model.py`, `content_tfidf.py`, `popularity.py`, optional `content_embeddings.py` |
+| 3. At least two base approaches | `src/models/als_model.py`, `content_tfidf.py`, `popularity.py` |
 | 4. Justified hybrid | `src/models/hybrid_gate.py`, `scripts/tune_k.py` |
 | 5. Evaluation incl. beyond-accuracy and cold start | `src/evaluation/*`, `src/data/cold_start.py` |
-| 6. Demo with explanations | `app/streamlit_app.py`, `src/recommend.py`, `src/explain.py` |
+| 6. Demo with explanations | `app/streamlit_app.py`, `src/recommend.py`, `src/explain.py`, `src/labels.py`, `src/editions.py` |
 | Deliverable: notebook + commented code | `notebooks/00_main.ipynb`, `src/` |
 | Deliverable: report (10 pages max) | `reports/report_outline.md` |
 
@@ -47,8 +59,8 @@ Niche books stay invisible. This is **popularity bias**.
 |---|---|
 | `config/` | `config.yaml`: every path and hyper-parameter |
 | `data/` | raw / interim / processed (not committed) |
-| `src/` | Python package: data, models, evaluation, visualization, utils, recommend, explain |
-| `app/` | Streamlit demo |
+| `src/` | Python package: data, models, evaluation, visualization, utils, recommend, explain, labels, editions |
+| `app/`, `.streamlit/` | Streamlit demo and its theme / toolbar settings |
 | `scripts/` | `run_pipeline.py`, `tune_k.py` |
 | `notebooks/` | `00_main` (handed in), `01_eda`, `02_results_analysis` |
 | `tests/` | pytest (each person tests the other's code) |
@@ -62,12 +74,22 @@ Niche books stay invisible. This is **popularity bias**.
     .\.venv\Scripts\Activate.ps1
     pip install -r requirements.txt
     python -m src.data.download
-    python scripts/run_pipeline.py
-    python scripts/tune_k.py
-    streamlit run app/streamlit_app.py
+    python scripts/run_pipeline.py --force      # 50 000 sampled users (data.n_users_sample)
+    python scripts/tune_k.py                    # chooses k on VALIDATION -> best_k.json
+    python scripts/run_pipeline.py              # again, WITHOUT --force: re-evaluates TEST with that k
     pytest -q
+    streamlit run app/streamlit_app.py
+
+The **second** `run_pipeline.py` is required: otherwise `test_metrics.csv` still holds the
+results of the default k (the app warns on the Résultats page if the two k differ).
+For a quick trial, add `--users 5000` to the first command (and `--force` whenever you change it).
+The results quoted in the report must come from the full run.
 
 ## 7. Limits
 - Goodreads data is from 2017, so new books and new users are simulated.
 - One genre and a user sample, so the results hold for that subset only.
+- Goodreads lists editions separately: classics such as *Persepolis* can look "rarely read" in the
+  sample because their readers are split across editions.
+- In our first runs the adaptive hybrid did not beat the fixed 50/50 hybrid on overall diversity;
+  its advantage is on new books (cold start). The report states this honestly.
 - Academic-use dataset. Do not redistribute the raw files.

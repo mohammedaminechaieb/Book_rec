@@ -11,7 +11,13 @@ What it does:
   ALS and TF-IDF scores are computed only once per user batch.
   The script evaluates every k without retraining the models.
 
-  The best k is selected by validation NDCG@20.
+  k is chosen with an explicit accuracy / long-tail trade-off:
+  the LARGEST k whose validation NDCG@20 is within gate.ndcg_tolerance
+  (default 5 %) of the best NDCG@20. Larger k = more weight on content =
+  more long-tail and cold books. ndcg_tolerance: 0 gives "max NDCG".
+
+  After this script, run scripts/run_pipeline.py again (without --force)
+  so that the TEST table is recomputed with the chosen k.
 
 Input:
   - config/config.yaml
@@ -20,7 +26,8 @@ Input:
 
 Output:
   - results/tables/k_sweep_val.csv
-  - results/tables/best_k.json
+  - results/tables/best_k.json  {k, selection_rule, ndcg_tolerance, best_ndcg,
+                                 ndcg, recall, cold_recall, coverage, tail_share}
   - results/figures/tradeoff_curve.png
   - results/figures/gate_curve.png
 
@@ -321,18 +328,28 @@ def evaluate_k_values(cfg, art, heldout, cold_heldout, book_genre):
     return table
 
 
-def select_best_k(table):
+def select_best_k(table, tolerance: float = 0.05):
     """
-    Select k by maximum validation NDCG@20.
+    Choose k with an explicit accuracy / long-tail trade-off.
 
-    Ties:
-      1. Higher coverage
-      2. Smaller k
+    Rule: among the k whose validation NDCG@20 is at least
+    (1 - tolerance) x the best NDCG@20, keep the LARGEST k.
+    A larger k gives more weight to the content branch, so more
+    long-tail and cold books, while accuracy stays within the
+    tolerance of the best value. tolerance = 0 gives the plain
+    "maximum NDCG" choice.
+
+    Ties: higher coverage, then smaller k.
     """
 
-    ordered = table.sort_values(
-        by=["ndcg", "coverage", "k"],
-        ascending=[False, False, True],
+    best_ndcg = float(table["ndcg"].max())
+    threshold = (1.0 - tolerance) * best_ndcg
+
+    eligible = table[table["ndcg"] >= threshold]
+
+    ordered = eligible.sort_values(
+        by=["k", "coverage"],
+        ascending=[False, False],
         kind="stable",
     )
 
@@ -362,12 +379,21 @@ def save_results(cfg, table, best):
     )
 
     # Save selected hyperparameter.
+    tolerance = float(cfg["gate"].get("ndcg_tolerance", 0.0))
+
     best_result = {
         "k": float(best["k"]),
         "selection_metric": "validation_ndcg@20",
+        "selection_rule": (
+            f"largest k with NDCG@20 >= {1 - tolerance:.2f} x best NDCG@20"
+        ),
+        "ndcg_tolerance": tolerance,
+        "best_ndcg": float(table["ndcg"].max()),
         "ndcg": float(best["ndcg"]),
         "recall": float(best["recall"]),
+        "cold_recall": float(best["cold_recall"]),
         "coverage": float(best["coverage"]),
+        "tail_share": float(best["tail_share"]),
     }
 
     best_path = tables_dir / "best_k.json"
@@ -416,9 +442,9 @@ def save_results(cfg, table, best):
 
         ax.plot(n, alpha, linewidth=2)
 
-        ax.set_title("Hybrid Gate Curve (k=0)")
-        ax.set_xlabel("Training interactions per book")
-        ax.set_ylabel("ALS weight (alpha)")
+        ax.set_title("Courbe du gate (k = 0)")
+        ax.set_xlabel("Interactions d'entraînement par livre (n)")
+        ax.set_ylabel("Poids d'ALS (α)")
         ax.set_ylim(-0.05, 1.05)
         ax.grid(alpha=0.25)
 
@@ -469,7 +495,10 @@ def main() -> None:
         book_genre,
     )
 
-    best = select_best_k(table)
+    best = select_best_k(
+        table,
+        tolerance=float(cfg["gate"].get("ndcg_tolerance", 0.0)),
+    )
 
     save_results(
         cfg,
@@ -486,6 +515,10 @@ def main() -> None:
     print("NDCG@20:", round(float(best["ndcg"]), 4))
     print("Recall@20:", round(float(best["recall"]), 4))
     print("Coverage:", round(float(best["coverage"]), 4))
+    print("Tail share:", round(float(best["tail_share"]), 4))
+    print("Rule: largest k within",
+          cfg["gate"].get("ndcg_tolerance", 0.0), "of the best NDCG@20")
+    print("Next step: python scripts/run_pipeline.py  (re-evaluates TEST with this k)")
 
     print("\nTuning complete!")
 

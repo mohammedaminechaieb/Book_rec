@@ -11,8 +11,11 @@ What it does:
   1. long_tail_distribution
   2. tradeoff_curve
   3. gate_curve
-  4. popularity_of_recs
-  5. baseline_bars
+  4. popularity_of_recs  (one box per model, log axis)
+  5. baseline_bars       (genre_variety left out: constant on this dataset)
+
+  Titles and axes are in French, like the report; metric names come from
+  src/labels.py. White background on purpose: the figures go into the PDF report.
 
 Input:
   - Evaluation DataFrames
@@ -32,6 +35,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+from src.labels import METRIC_LABEL
 
 
 # =============================================================================
@@ -108,16 +113,16 @@ def long_tail_distribution(
     )
 
     ax.set_title(
-        "Long-tail distribution of book popularity",
+        "Longue traîne : popularité des livres",
         fontsize=14
     )
 
     ax.set_xlabel(
-        "Book rank (most to least popular)"
+        "Rang du livre (du plus lu au moins lu)"
     )
 
     ax.set_ylabel(
-        "Number of training interactions"
+        "Lecteurs dans l'entraînement"
     )
 
     ax.grid(
@@ -163,7 +168,7 @@ def tradeoff_curve(
             "recall_at_20",
             "recall@20",
             "recall_20",
-            "Recall@20",
+            "Rappel@20",
         ]
     )
 
@@ -224,16 +229,16 @@ def tradeoff_curve(
         )
 
     ax.set_title(
-        "Recall@20 vs Catalogue Coverage",
+        "Rappel@20 et couverture du catalogue selon k",
         fontsize=14
     )
 
     ax.set_xlabel(
-        "Catalogue Coverage"
+        "Couverture du catalogue"
     )
 
     ax.set_ylabel(
-        "Recall@20"
+        "Rappel@20"
     )
 
     ax.grid(
@@ -294,7 +299,7 @@ def gate_curve(
         alpha,
         linewidth=2,
         color="darkorange",
-        label="ALS weight"
+        label="Poids d'ALS (α)"
     )
 
     ax.axhline(
@@ -302,7 +307,7 @@ def gate_curve(
         linestyle="--",
         color="gray",
         alpha=0.7,
-        label="Equal ALS/content weight"
+        label="Poids égaux ALS / contenu (α = 0,5)"
     )
 
     # At n=k, alpha=0.5.
@@ -315,16 +320,16 @@ def gate_curve(
     )
 
     ax.set_title(
-        f"Hybrid Gate Curve (k={k:g})",
+        f"Courbe de l'aiguillage (k = {k:g})",
         fontsize=14
     )
 
     ax.set_xlabel(
-        "Number of training interactions per book"
+        "Lecteurs du livre dans l'entraînement (n)"
     )
 
     ax.set_ylabel(
-        "ALS weight (alpha)"
+        "Poids d'ALS (α)"
     )
 
     ax.set_ylim(
@@ -386,7 +391,7 @@ def popularity_of_recs(
 
     fig, ax = plt.subplots(figsize=(10, 6))
 
-    plotted = 0
+    names, samples = [], []
 
     for model_name, recommendations in recs_by_model.items():
 
@@ -404,45 +409,45 @@ def popularity_of_recs(
         if valid.size == 0:
             continue
 
-        popularities = counts[valid]
+        # Readers of each recommended book (log axis below handles the long tail).
+        names.append(str(model_name))
+        samples.append(counts[valid] + 1)
 
-        # The log1p transformation handles zero-interaction books.
-        log_popularity = np.log1p(popularities)
-
-        ax.hist(
-            log_popularity,
-            bins=30,
-            alpha=0.45,
-            density=True,
-            label=str(model_name)
-        )
-
-        plotted += 1
-
-    if plotted == 0:
+    if not samples:
         plt.close(fig)
         raise ValueError(
             "No valid recommendations found."
         )
 
+    # One horizontal box per model: much easier to read than
+    # overlapping histograms (the box shows median and quartiles).
+    box_style = dict(
+        showfliers=False,
+        patch_artist=True,
+        boxprops=dict(facecolor="#4fd1b8", alpha=0.55),
+        medianprops=dict(color="#c0392b", linewidth=2),
+    )
+    try:                                   # matplotlib >= 3.10
+        ax.boxplot(samples, orientation="horizontal", **box_style)
+    except TypeError:                      # older matplotlib
+        ax.boxplot(samples, vert=False, **box_style)
+    ax.set_yticks(range(1, len(names) + 1))
+    ax.set_yticklabels(names)
+    ax.set_xscale("log")
+
     ax.set_title(
-        "Popularity Distribution of Recommended Books",
+        "Popularité des livres recommandés (médiane et quartiles)",
         fontsize=14
     )
 
     ax.set_xlabel(
-        "log(1 + number of training interactions)"
-    )
-
-    ax.set_ylabel(
-        "Density"
+        "Lecteurs du livre dans l'entraînement + 1 (échelle log)"
     )
 
     ax.grid(
+        axis="x",
         alpha=0.2
     )
-
-    ax.legend()
 
     fig.tight_layout()
 
@@ -512,7 +517,6 @@ def baseline_bars(
         "coverage",
         "novelty",
         "tail_share",
-        "genre_variety",
     ]
 
     available_metrics = [
@@ -579,10 +583,9 @@ def baseline_bars(
             color="cornflowerblue"
         )
 
-        title = (
-            metric
-            .replace("all/", "")
-            .replace("_", " ")
+        title = METRIC_LABEL.get(
+            metric,
+            metric.replace("all/", "").replace("_", " ")
         )
 
         ax.set_title(
@@ -590,14 +593,10 @@ def baseline_bars(
             fontsize=11
         )
 
-        ax.set_ylabel(
-            metric
-        )
-
         ax.tick_params(
             axis="x",
-            labelrotation=35,
-            labelsize=8
+            labelrotation=30,
+            labelsize=9
         )
 
         ax.grid(
@@ -613,7 +612,7 @@ def baseline_bars(
         axes.flat[i].set_visible(False)
 
     fig.suptitle(
-        "Recommendation Models Comparison",
+        "Comparaison des modèles (jeu de test)",
         fontsize=15
     )
 
