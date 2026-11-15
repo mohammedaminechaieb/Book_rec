@@ -235,31 +235,43 @@ def load_artifacts(cfg: dict) -> dict:
         k=k,
     )
 
-    # Select active users for the Streamlit demo.
-    active_users = np.flatnonzero(
-        train.getnnz(axis=1) > 0
-    )
-
-    rng = np.random.default_rng(cfg["seed"])
-
-    n_demo = min(
-        cfg["app"]["n_demo_users"],
-        len(active_users),
-    )
-
-    if n_demo > 0:
-        selected = rng.choice(
-            active_users,
-            size=n_demo,
-            replace=False,
-        )
-    else:
-        selected = np.array([], dtype=int)
-
+    # Select the demo readers for the Streamlit app.
+    # Most users have short histories (after the 5-per-user filter and the
+    # time split, a user with 5 books keeps only 3 in train), and the
+    # simulated cold users keep exactly 3 on purpose. A demo needs readers
+    # with a real history, so: exclude cold users and prefer users with at
+    # least app.min_demo_books training books (random sample among them).
     idx2user = {
         idx: uid
         for uid, idx in user2idx.items()
     }
+
+    cold_path = processed / "cold_users.json"
+    cold_ids = (
+        set(_read_json(cold_path)["user_ids"])
+        if cold_path.exists()
+        else set()
+    )
+
+    books_per_user = train.getnnz(axis=1)
+    warm_users = np.array([
+        i for i in np.flatnonzero(books_per_user > 0)
+        if idx2user[int(i)] not in cold_ids
+    ], dtype=int)
+
+    min_books = int(cfg["app"].get("min_demo_books", 8))
+    n_wanted = int(cfg["app"]["n_demo_users"])
+
+    rich = warm_users[books_per_user[warm_users] >= min_books]
+
+    rng = np.random.default_rng(cfg["seed"])
+
+    if len(rich) >= n_wanted:
+        selected = rng.choice(rich, size=n_wanted, replace=False)
+    else:
+        # Not enough rich readers: take the longest histories first.
+        order = np.argsort(-books_per_user[warm_users], kind="stable")
+        selected = warm_users[order[:n_wanted]]
 
     demo_users = [
         idx2user[int(i)]

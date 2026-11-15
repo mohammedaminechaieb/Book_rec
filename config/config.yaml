@@ -74,5 +74,6 @@ eval:
 
 app:
   n_demo_users: 300              # readers listed in the demo dropdown
+  min_demo_books: 8              # demo readers: not cold users, and at least 8 books in train
   default_top_n: 10
   explain_top_shelves: 3         # shared shelves shown in an explanation
