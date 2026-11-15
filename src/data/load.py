@@ -15,7 +15,8 @@ Input:
   - data/raw/goodreads_book_genres_initial.json.gz (book_id, genres)
 Output:
   - interactions DataFrame [user_id, book_id, is_read, rating, date_updated]
-  - books DataFrame        [book_id, title, description, shelves(list[str]), ratings_count]
+  - books DataFrame        [book_id, title, description, shelves(list[str]), ratings_count, work_id]
+                           (work_id = Goodreads id shared by all editions of a work)
   - genres DataFrame       [book_id, genre]  (main genre of each book)
 ==============================================================================
 """
@@ -89,9 +90,9 @@ def load_books(path: Path, top_shelves: int = 20, keep_ids: set | None = None) -
                         key=lambda s: _to_int(s.get("count")), reverse=True)
         names = [s["name"] for s in shelves[:top_shelves]]
         rows.append((book_id, book.get("title", ""), book.get("description", ""),
-                    names, _to_int(book.get("ratings_count"))))
+                     names, _to_int(book.get("ratings_count")), str(book.get("work_id", "") or "")))
 
-    return pd.DataFrame(rows, columns=["book_id", "title", "description", "shelves", "ratings_count"])
+    return pd.DataFrame(rows, columns=["book_id", "title", "description", "shelves", "ratings_count", "work_id"])
 
 
 def load_genres(path: Path, keep_ids: set | None = None) -> pd.DataFrame:

@@ -16,7 +16,9 @@ What it does:
       with the thresholds of src/labels.py
     - one sentence that sums it up, e.g.
       "Parce que vous avez aimé « Saga, Vol. 1 ». Tags communs : space-opera.
-       Livre encore peu lu (2 lecteurs) : score porté à 90 % par le contenu."
+       Livre encore peu lu, choisi surtout pour son contenu."
+      The liked book cited is the closest one in the space of the branch that
+      chose the book (ALS factors or TF-IDF), and only if it is similar enough.
 Input:
   - user_idx, book_idx, train CSR, TF-IDF item matrix, n_items, k
   - books table (title, shelves) aligned with book indices (row i = book i)
@@ -26,6 +28,7 @@ Output:
 ==============================================================================
 """
 import re
+import unicodedata
 from collections import Counter
 
 import numpy as np
@@ -78,33 +81,46 @@ def closest_liked_book(book_idx: int, liked_idx: np.ndarray,
     best = int(np.argmax(sims))
     return int(liked_idx[best]), float(sims[best])
 
-def frequent_shelves(all_shelves, max_share: float = 0.30) -> set[str]:
-    """Shelves carried by more than max_share of the books (e.g. "comics", "graphic-novels").
+def shelf_key(name: str) -> str:
+    """Comparable form of a tag: 'Cómics' = 'comics', 'non-fiction' = 'nonfiction'."""
+    text = unicodedata.normalize("NFKD", str(name)).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[\s_\-]+", "", text.lower())
 
-    In a comics-only dataset such tags describe every book, so showing them as
-    "shared tags" explains nothing. Computed once on the whole catalogue.
+
+def frequent_shelves(all_shelves, max_share: float = 0.20) -> set[str]:
+    """Keys (shelf_key) of tags carried by more than max_share of the books.
+
+    In a comics-only dataset tags such as "comics" or "graphic-novels" describe
+    every book, so showing them as "shared tags" explains nothing.
+    Computed once on the whole catalogue.
     """
     all_shelves = list(all_shelves)
     if not all_shelves:
         return set()
-    counts = Counter(s for shelves in all_shelves for s in set(list(shelves)))
+    counts = Counter(k for shelves in all_shelves for k in {shelf_key(s) for s in list(shelves)})
     limit = max_share * len(all_shelves)
-    return {s for s, c in counts.items() if c > limit}
+    return {k for k, c in counts.items() if c > limit}
 
 
 def shared_shelves(book_shelves: list[str], liked_shelves: list[list[str]], top: int = 3,
                    exclude: set | None = None) -> list[str]:
     """Shelves of the book that appear most often among the liked books' shelves.
 
-    exclude: shelves never shown (use frequent_shelves() for near-universal tags).
+    Tags are compared through shelf_key (accents, case and '-' ignored), so
+    "non-fiction" and "nonfiction" count as one tag and are shown once.
+    exclude: tags (or their keys) never shown, e.g. frequent_shelves().
     """
-    exclude = exclude or set()
-    # how many liked books carry each shelf (a shelf counts once per book)
-    counts = Counter(s for shelves in liked_shelves for s in set(shelves))
-    candidates = [s for s in dict.fromkeys(book_shelves)          # keep order, no duplicates
-                  if counts[s] > 0 and not is_generic_shelf(s) and s not in exclude]
-    # most shared first; ties keep the book's own order (its most popular shelves first)
-    return sorted(candidates, key=lambda s: -counts[s])[:top]
+    exclude = {shelf_key(e) for e in (exclude or set())}
+    counts = Counter(k for shelves in liked_shelves for k in {shelf_key(s) for s in shelves})
+    shown, seen_keys = [], set()
+    for s in book_shelves:                                    # book order = most popular first
+        k = shelf_key(s)
+        if k in seen_keys or counts[k] == 0 or is_generic_shelf(s) or k in exclude:
+            continue
+        seen_keys.add(k)
+        shown.append(s)
+    # most shared first; ties keep the book's own order
+    return sorted(shown, key=lambda s: -counts[shelf_key(s)])[:top]
 
 
 def popularity_label(n: int, n_items: np.ndarray) -> str:
@@ -124,15 +140,37 @@ def _clean_title(title: str) -> str:
     return str(title).strip().rstrip(".").strip()
 
 
+def closest_by_factors(book_idx: int, liked_idx: np.ndarray, item_factors: np.ndarray) -> tuple[int, float]:
+    """Liked book closest to book_idx in the ALS space (cosine of item factors)."""
+    liked_idx = np.asarray(liked_idx)
+    if liked_idx.size == 0:
+        return -1, 0.0
+    target = item_factors[book_idx]
+    liked = item_factors[liked_idx]
+    norms = np.linalg.norm(liked, axis=1) * (np.linalg.norm(target) or 1.0)
+    sims = (liked @ target) / np.where(norms == 0, 1.0, norms)
+    best = int(np.argmax(sims))
+    return int(liked_idx[best]), float(sims[best])
+
+
+MIN_SIMILARITY = 0.10          # below this, the "closest" liked book explains nothing
+
+
 def explain(user_idx: int, book_idx: int, train: sp.csr_matrix, item_vectors: sp.csr_matrix,
             books: pd.DataFrame, n_items: np.ndarray, k: float,
             cf_score: float, content_score: float, top_shelves: int = 3,
             alpha: float | None = None, cold_threshold: int = 3,
-            exclude_shelves: set | None = None, mode: str = "gate") -> dict:
+            exclude_shelves: set | None = None, mode: str = "gate",
+            item_factors: np.ndarray | None = None) -> dict:
     """Combine the helpers above into the dict described in the header.
 
     mode: "gate" (alpha from n and k), "fixed" (alpha given, 50/50 baseline),
           "als" (alpha = 1) or "content" (alpha = 0). The sentence is written for the mode.
+    item_factors: ALS item factors. When the book is chosen mostly by ALS, the
+          "Parce que vous avez aimé X" book is the closest one in the ALS space
+          (not in the TF-IDF space), so each recommendation gets its own anchor.
+    The card already shows the class, the number of readers and the ALS / content
+    split, so the sentence does not repeat them.
     """
     liked_idx = train[user_idx].indices                       # books the user read in train
     n = int(n_items[book_idx])
@@ -144,7 +182,13 @@ def explain(user_idx: int, book_idx: int, train: sp.csr_matrix, item_vectors: sp
         alpha = float(gate_alpha(np.array([n]), k)[0])
     shares = score_breakdown(alpha, cf_score, content_score)
 
-    closest_idx, similarity = closest_liked_book(book_idx, liked_idx, item_vectors)
+    by_als = item_factors is not None and (mode == "als" or (mode != "content" and shares["cf_share"] >= 0.5))
+    if by_als:
+        closest_idx, similarity = closest_by_factors(book_idx, liked_idx, item_factors)
+    else:
+        closest_idx, similarity = closest_liked_book(book_idx, liked_idx, item_vectors)
+    if similarity < MIN_SIMILARITY:
+        closest_idx = -1
     closest_title = books.iloc[closest_idx]["title"] if closest_idx >= 0 else None
     tags = shared_shelves(list(books.iloc[book_idx]["shelves"]),
                           [list(books.iloc[i]["shelves"]) for i in liked_idx],
@@ -153,21 +197,22 @@ def explain(user_idx: int, book_idx: int, train: sp.csr_matrix, item_vectors: sp
 
     # --- one readable sentence (French, like the app and the report) ---
     parts = []
-    if closest_title is not None and similarity > 0:
+    if closest_title is not None:
         parts.append(f"Parce que vous avez aimé « {_clean_title(closest_title)} ».")
     if tags:
         parts.append(f"Tags communs{NBSP}: " + ", ".join(tags) + ".")
-    content_pct, cf_pct = round(100 * shares["content_share"]), round(100 * shares["cf_share"])
     if mode == "als":
-        parts.append(f"Apprécié par des lecteurs aux goûts proches des vôtres ({_readers(n)}).")
+        parts.append("Apprécié par des lecteurs aux goûts proches des vôtres.")
     elif mode == "content":
-        parts.append(f"Choisi pour la proximité de son contenu ({_readers(n)}).")
-    elif n <= cold_threshold:
-        parts.append(f"Livre encore peu lu ({_readers(n)}){NBSP}: score porté à "
-                     f"{content_pct}{NBSP}% par le contenu.")
+        parts.append("Choisi pour la proximité de son contenu.")
     else:
-        parts.append(f"{POP_LABEL[label]} ({_readers(n)}){NBSP}: score porté à {cf_pct}{NBSP}% "
-                     f"par les lecteurs similaires et {content_pct}{NBSP}% par le contenu.")
+        prefix = "Livre encore peu lu, choisi" if n <= cold_threshold else "Choisi"
+        if shares["content_share"] >= 0.6:
+            parts.append(f"{prefix} surtout pour son contenu.")
+        elif shares["cf_share"] >= 0.6:
+            parts.append(f"{prefix} surtout grâce aux lecteurs aux goûts proches.")
+        else:
+            parts.append(f"{prefix} à la fois par les lecteurs proches et par le contenu.")
 
     return {"alpha": alpha, **shares, "closest_book": closest_title,
             "closest_similarity": similarity, "shared_shelves": tags,

@@ -48,7 +48,7 @@ sys.path.insert(0, str(ROOT))
 
 from src.utils.config import load_config, set_seed
 from src.recommend import load_artifacts
-from src.models.hybrid_gate import gate_alpha, minmax_rows
+from src.models.hybrid_gate import gate_alpha, normalize_rows
 from src.evaluation.evaluate import (
     heldout_from_df,
     top_n_from_scores,
@@ -240,9 +240,10 @@ def evaluate_k_values(cfg, art, heldout, cold_heldout, book_genre):
 
         content_scores = art["content"].score(batch)
 
-        # HybridGate uses per-user min-max normalization.
-        als_normalized = minmax_rows(als_scores)
-        content_normalized = minmax_rows(content_scores)
+        # Same per-user normalisation as HybridGate (gate.normalization).
+        norm = cfg["gate"].get("normalization", "rank")
+        als_normalized = normalize_rows(als_scores, norm)
+        content_normalized = normalize_rows(content_scores, norm)
 
         seen = train[batch]
 
@@ -415,6 +416,7 @@ def save_results(cfg, table, best):
     plots.tradeoff_curve(
         plot_table,
         figures_dir / "tradeoff_curve.png",
+        best_k=float(best["k"]),
     )
 
     # The plotting function handles positive k.
