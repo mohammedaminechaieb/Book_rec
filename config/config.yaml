@@ -18,7 +18,7 @@ paths:
 
 data:
   base_url: https://mcauleylab.ucsd.edu/public_datasets/gdrive/goodreads
-  genre: comics_graphic
+  genre: comics_graphic          # informative only: the file names below are what is read
   interactions_file: goodreads_interactions_comics_graphic.json.gz
   books_file: goodreads_books_comics_graphic.json.gz
   genres_file: goodreads_book_genres_initial.json.gz
@@ -28,7 +28,7 @@ data:
   min_book_interactions: 5
 
 split:
-  strategy: per_user_time        # last interactions of each user (by date_updated)
+  strategy: per_user_time        # informative only: split.py always splits by time per user
   val_ratio: 0.1
   test_ratio: 0.2
 
@@ -36,7 +36,8 @@ cold_start:
   # new ITEMS (simulated)
   cold_book_fraction: 0.10       # share of books turned "cold"
   max_train_interactions: 3      # interactions kept in train for a cold book
-  cold_threshold: 3              # n <= this in train -> book counts as cold in eval
+  cold_threshold: 3              # n <= this in train -> "livre encore peu lu" in explanations
+                                 # (the evaluation uses cold_books.json, not this value)
   # new USERS (simulated)
   cold_user_fraction: 0.10       # share of users turned "cold"
   max_user_train_interactions: 3 # earliest interactions kept in train for a cold user
@@ -56,12 +57,13 @@ tfidf:
   ngram_range: [1, 2]
 
 embeddings:                      # optional recent approach (content_embeddings.py)
-  enabled: false
+  enabled: false                 # NOT implemented yet: keep false (future work)
   model_name: sentence-transformers/all-MiniLM-L6-v2
   batch_size: 256
 
 gate:
-  k: 20                          # default, replaced by best k from tune_k.py
+  k: 20                          # default, replaced by best k from tune_k.py (best_k.json)
+  ndcg_tolerance: 0.05           # tune_k.py: largest k with NDCG@20 >= 95 % of the best
   k_grid: [0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
   fixed_alpha: 0.5               # for the 50/50 baseline
 

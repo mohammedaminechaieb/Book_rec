@@ -1,4 +1,17 @@
-
+"""
+==============================================================================
+File      : tests/test_clean_ella.py
+Project   : book_rec - Reducing popularity bias in book recommendation
+Owner     : Ella (lead)  |  Amine (co-owner)
+------------------------------------------------------------------------------
+What it does:
+  Unit tests for src/data/clean.py: positive interactions, duplicates, k-core filter, book cleaning.
+  Note: these tests were written by the author of the code; the cross-testing
+  rule (each person tests the other's code) applies to the other test files.
+Input:  tiny hand-made DataFrames
+Output: pytest pass / fail
+==============================================================================
+"""
 import pandas as pd
 
 from src.data.clean import (

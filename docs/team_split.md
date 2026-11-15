@@ -8,7 +8,7 @@ Output  : reference for the team and the teacher
 # Team split - Amine and Ella
 
 Rule: every file has a **lead** (writes most of it) and a **co-owner** (pair-programs, reviews the PR).
-Each person writes the **tests for the other's code**. Split: 15 lead files each.
+Each person writes the **tests for the other's code**. Split: about the same number of lead files each (17 rows for Amine, 18 for Ella, one row being 4 small test files).
 
 | File | Lead | Co-owner |
 |---|---|---|
@@ -23,7 +23,7 @@ Each person writes the **tests for the other's code**. Split: 15 lead files each
 | src/models/popularity.py | Ella | Amine |
 | src/models/als_model.py | Amine | Ella |
 | src/models/content_tfidf.py | Ella | Amine |
-| src/models/content_embeddings.py (optional) | Amine | Ella |
+| src/models/content_embeddings.py (future work, not implemented) | Amine | Ella |
 | src/models/hybrid_gate.py | Amine | Ella |
 | src/evaluation/accuracy_metrics.py | Amine | Ella |
 | src/evaluation/exposure_metrics.py | Ella | Amine |
@@ -31,15 +31,20 @@ Each person writes the **tests for the other's code**. Split: 15 lead files each
 | src/visualization/plots.py | Ella | Amine |
 | src/recommend.py | Ella | Amine |
 | src/explain.py | Amine | Ella |
+| src/labels.py | Amine | Ella |
+| src/editions.py | Ella | Amine |
 | app/streamlit_app.py | Ella | Amine |
 | scripts/run_pipeline.py | Amine | Ella |
 | scripts/tune_k.py | Ella | Amine |
 | tests/test_accuracy_metrics.py | Ella | Amine |
 | tests/test_split_and_gate.py | Ella | Amine |
 | tests/test_explain.py | Ella | Amine |
+| tests/test_labels.py | Ella | Amine |
 | tests/test_exposure_metrics.py | Amine | Ella |
 | tests/test_cold_start.py | Amine | Ella |
 | tests/test_stats.py | Amine | Ella |
+| tests/test_editions.py | Amine | Ella |
+| tests/test_clean_ella.py, test_plots_ella.py, test_popularity_ella.py, test_tfidf_ella.py | Ella | Amine |
 | notebooks/01_eda.ipynb | Ella | Amine |
 | notebooks/02_results_analysis.ipynb | Amine | Ella |
 | notebooks/00_main.ipynb, README, config, report, slides | Both | Both |
@@ -50,6 +55,6 @@ Each person writes the **tests for the other's code**. Split: 15 lead files each
 | 1 | config, download, load | io, stats, clean, EDA notebook | agree on the data schema |
 | 2 | split, ALS | cold books + cold users, popularity, TF-IDF | first run on a small sample |
 | 3 | gate, accuracy metrics, evaluate | exposure metrics, plots | cross-tests |
-| 4 | explain, run_pipeline, (embeddings) | recommend, Streamlit app, tune_k | k sweep, results notebook |
+| 4 | explain, labels, run_pipeline | recommend, Streamlit app, tune_k | k sweep, results notebook |
 | 5 | report sections (see outline) | report sections | 00_main notebook, results + discussion |
 | 6 | slides (half) | slides (half) | rehearsal: each explains the other's code |

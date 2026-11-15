@@ -8,14 +8,17 @@ What it does:
   End-to-end pipeline:
     load -> stats (raw) -> clean -> stats (clean) -> split -> stats (train)
     -> cold-start simulation (new books + new users) -> id maps / CSR
-    -> fit Popularity, ALS, TF-IDF content [+ embeddings if enabled]
+    -> fit Popularity, ALS, TF-IDF content [+ embeddings if enabled: not implemented yet]
     -> build the 50/50 and gated hybrids
     -> evaluate every model on TEST (all / cold items / cold users; P, R, NDCG, HR @K;
       coverage, novelty, genre variety, tail share)
     -> save tables, figures and the artifacts used by the demo app
   Each step skips its work if its output file already exists (--force reruns it).
-  Steps that call code not written yet (NotImplementedError) in stats / plots
-  are skipped with a message instead of stopping the run.
+  The optional steps (stats table, figures, embeddings) are skipped with a
+  message instead of stopping the run if they fail with NotImplementedError.
+  Model names in the results table are the French display names of src/labels.py.
+  k = --k, else results/tables/best_k.json (written by tune_k.py), else gate.k.
+  Full order:  run_pipeline.py --force  ->  tune_k.py  ->  run_pipeline.py
 Input:
   - config/config.yaml, data/raw/*
 Output:
@@ -52,6 +55,7 @@ from src.models.popularity import PopularityModel  # noqa: E402
 from src.models.als_model import ALSModel  # noqa: E402
 from src.models.content_tfidf import ContentTFIDFModel  # noqa: E402
 from src.models.hybrid_gate import HybridGate, counts_to_array  # noqa: E402
+from src.labels import MODEL_LABEL  # noqa: E402
 from src.evaluation.evaluate import (evaluate_all, heldout_from_df,  # noqa: E402
                                     save_table, top_n_from_scores)
 
@@ -198,21 +202,25 @@ def step_models(cfg: dict, m: dict, k: float) -> dict:
                               use_shelves=t["use_shelves"]).fit(m["books"], X)
     io.save_sparse(tfidf.item_vectors, P / "tfidf_items.npz")
 
+    L = MODEL_LABEL                                      # French display names (src/labels.py)
     models = {
-        "Popularity": pop,
-        "ALS": als,
-        "Content (TF-IDF)": tfidf,
-        "Hybrid 50/50": HybridGate(als, tfidf, n_items, k=None,
-                                  fixed_alpha=cfg["gate"]["fixed_alpha"]),
-        f"Gated hybrid (k={k:g})": HybridGate(als, tfidf, n_items, k=k),
+        L["popularity"]: pop,
+        L["als"]: als,
+        L["content"]: tfidf,
+        L["fixed"]: HybridGate(als, tfidf, n_items, k=None,
+                               fixed_alpha=cfg["gate"]["fixed_alpha"]),
+        f"{L['gate']} (k={k:g})": HybridGate(als, tfidf, n_items, k=k),
     }
     if cfg["embeddings"]["enabled"]:                     # optional "recent approach"
-        from src.models.content_embeddings import ContentEmbeddingModel
-        e = cfg["embeddings"]
-        emb = ContentEmbeddingModel(e["model_name"], e["batch_size"]).fit(
-            m["books"], X, cache_path=P / "book_embeddings.npy")
-        models["Content (embeddings)"] = emb
-        models[f"Gated hybrid + embeddings (k={k:g})"] = HybridGate(als, emb, n_items, k=k)
+        def fit_embeddings():
+            from src.models.content_embeddings import ContentEmbeddingModel
+            e = cfg["embeddings"]
+            return ContentEmbeddingModel(e["model_name"], e["batch_size"]).fit(
+                m["books"], X, cache_path=P / "book_embeddings.npy")
+        emb = optional(fit_embeddings, "embeddings")
+        if emb is not None:
+            models[L["embeddings"]] = emb
+            models[f"{L['gate']} + embeddings (k={k:g})"] = HybridGate(als, emb, n_items, k=k)
     return models
   
 def step_evaluate(cfg: dict, m: dict, models: dict, test, cold_books, cold_users,
@@ -234,7 +242,7 @@ def step_evaluate(cfg: dict, m: dict, models: dict, test, cold_books, cold_users
 
 
 def step_figures(cfg: dict, m: dict, models: dict, table: pd.DataFrame, test) -> None:
-    """Report figures (Ella's plots.py); skipped if not written yet."""
+    """Report figures (Ella's plots.py); a failing figure is skipped, not fatal."""
     from src.visualization import plots
     F, e = cfg["paths"]["figures_dir"], cfg["eval"]
     print("[8] figures")

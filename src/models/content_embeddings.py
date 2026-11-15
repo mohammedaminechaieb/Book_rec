@@ -5,6 +5,8 @@ Project   : book_rec - Reducing popularity bias in book recommendation
 Owner     : Amine (lead)  |  Ella (co-owner / reviewer)
 ------------------------------------------------------------------------------
 What it does:
+  STATUS: NOT IMPLEMENTED (future work). Keep embeddings.enabled: false;
+  run_pipeline.py skips it with a message if it is switched on.
   OPTIONAL "recent approach" (assignment step 3). Same role as the TF-IDF
   content branch, but each book is encoded with a pretrained sentence
   transformer (all-MiniLM-L6-v2, 384 dims, frozen, CPU is enough).
@@ -12,7 +14,7 @@ What it does:
   It can be dropped into the gate in place of TF-IDF and compared in the
   results table. Enabled with config.yaml -> embeddings.enabled: true.
 Input:
-  - books_clean.parquet (text), train CSR
+  - books_aligned.parquet (text, row i = book i), train CSR
   - config.yaml -> embeddings.model_name, embeddings.batch_size
 Output:
   - data/processed/book_embeddings.npy (n_books x 384, L2-normalised)
