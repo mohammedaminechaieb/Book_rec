@@ -56,11 +56,6 @@ tfidf:
   min_df: 3
   ngram_range: [1, 2]
 
-embeddings:                      # optional recent approach (content_embeddings.py)
-  enabled: false                 # NOT implemented yet: keep false (future work)
-  model_name: sentence-transformers/all-MiniLM-L6-v2
-  batch_size: 256
-
 gate:
   k: 20                          # default, replaced by best k from tune_k.py (best_k.json)
   ndcg_tolerance: 0.05           # tune_k.py: largest k with NDCG@20 >= 95 % of the best

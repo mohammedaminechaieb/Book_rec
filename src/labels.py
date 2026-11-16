@@ -60,7 +60,6 @@ MODEL_LABEL = {
     "fixed": "Hybride 50/50",
     "als": "ALS (collaboratif)",
     "content": "TF‑IDF (contenu)",
-    "embeddings": "Embeddings (contenu)",
     "popularity": "Popularité",
 }
 
@@ -112,8 +111,6 @@ def model_label(name: str) -> str:
         return MODEL_LABEL["gate"] + suffix
     if "50/50" in key or "fixed" in key:
         return MODEL_LABEL["fixed"]
-    if "embedding" in key:
-        return MODEL_LABEL["embeddings"]
     if "tf-idf" in key or "content" in key or "contenu" in key:
         return MODEL_LABEL["content"]
     if "als" in key:

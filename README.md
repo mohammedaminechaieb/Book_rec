@@ -20,8 +20,7 @@ Niche books stay invisible. This is **popularity bias**.
 
 - **Collaborative:** implicit-feedback ALS.
 - **Content:** TF-IDF of the description + popular shelves; the user profile is the mean of the books they liked.
-- **Recent approach (future work, not implemented):** frozen sentence embeddings (all-MiniLM-L6-v2),
-  stub in `src/models/content_embeddings.py`; keep `embeddings.enabled: false`.
+- **Future work:** frozen sentence embeddings (e.g. all-MiniLM-L6-v2) instead of TF-IDF.
 - **Hybrid gate (weighted hybrid, adaptive weight per book):** `score = a * CF + (1 - a) * content`,
   `a = n / (n + k)`. Before mixing, each branch's scores are turned into **per-user percentile ranks**
   (`gate.normalization: rank`). With min-max scaling, TF-IDF scores stay near 0 while ALS scores do not,
@@ -51,13 +50,13 @@ Niche books stay invisible. This is **popularity bias**.
 | Assignment step | Where |
 |---|---|
 | 1. Domain and dataset | `src/data/download.py`, `src/data/load.py` |
-| 2. Statistics, sparsity, popularity, cleaning, split | `src/data/stats.py`, `clean.py`, `split.py`, `notebooks/01_eda.ipynb` |
+| 2. Statistics, sparsity, popularity, cleaning, split | `src/data/stats.py`, `clean.py`, `split.py`, `notebooks/00_main.ipynb` |
 | 3. At least two base approaches | `src/models/als_model.py`, `content_tfidf.py`, `popularity.py` |
 | 4. Justified hybrid | `src/models/hybrid_gate.py`, `scripts/tune_k.py` |
 | 5. Evaluation incl. beyond-accuracy and cold start | `src/evaluation/*`, `src/data/cold_start.py` |
 | 6. Demo with explanations | `app/streamlit_app.py`, `src/recommend.py`, `src/explain.py`, `src/labels.py`, `src/editions.py` |
 | Deliverable: notebook + commented code | `notebooks/00_main.ipynb`, `src/` |
-| Deliverable: report (10 pages max) | `reports/report_outline.md` |
+| Deliverable: report (10 pages max) | `reports/Rapport_BookRec.pdf` (plan: `reports/report_outline.md`) |
 
 ## 5. Repository layout
 | Folder | Content |
@@ -67,7 +66,7 @@ Niche books stay invisible. This is **popularity bias**.
 | `src/` | Python package: data, models, evaluation, visualization, utils, recommend, explain, labels, editions |
 | `app/`, `.streamlit/` | Streamlit demo and its theme / toolbar settings |
 | `scripts/` | `run_pipeline.py`, `tune_k.py` |
-| `notebooks/` | `00_main` (handed in), `01_eda`, `02_results_analysis` |
+| `notebooks/` | `00_main.ipynb` (the notebook handed in) |
 | `tests/` | pytest (each person tests the other's code) |
 | `results/` | figures, tables, runs |
 | `reports/` | report outline, slides |

@@ -23,7 +23,6 @@ Each person writes the **tests for the other's code**. Split: about the same num
 | src/models/popularity.py | Ella | Amine |
 | src/models/als_model.py | Amine | Ella |
 | src/models/content_tfidf.py | Ella | Amine |
-| src/models/content_embeddings.py (future work, not implemented) | Amine | Ella |
 | src/models/hybrid_gate.py | Amine | Ella |
 | src/evaluation/accuracy_metrics.py | Amine | Ella |
 | src/evaluation/exposure_metrics.py | Ella | Amine |
@@ -45,8 +44,6 @@ Each person writes the **tests for the other's code**. Split: about the same num
 | tests/test_stats.py | Amine | Ella |
 | tests/test_editions.py | Amine | Ella |
 | tests/test_clean_ella.py, test_plots_ella.py, test_popularity_ella.py, test_tfidf_ella.py | Ella | Amine |
-| notebooks/01_eda.ipynb | Ella | Amine |
-| notebooks/02_results_analysis.ipynb | Amine | Ella |
 | notebooks/00_main.ipynb, README, config, report, slides | Both | Both |
 
 ## Plan

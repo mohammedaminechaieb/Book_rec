@@ -8,13 +8,13 @@ What it does:
   End-to-end pipeline:
     load -> stats (raw) -> clean -> stats (clean) -> split -> stats (train)
     -> cold-start simulation (new books + new users) -> id maps / CSR
-    -> fit Popularity, ALS, TF-IDF content [+ embeddings if enabled: not implemented yet]
+    -> fit Popularity, ALS, TF-IDF content
     -> build the 50/50 and gated hybrids
     -> evaluate every model on TEST (all / cold items / cold users; P, R, NDCG, HR @K;
       coverage, novelty, genre variety, tail share)
     -> save tables, figures and the artifacts used by the demo app
   Each step skips its work if its output file already exists (--force reruns it).
-  The optional steps (stats table, figures, embeddings) are skipped with a
+  The optional steps (stats table, figures) are skipped with a
   message instead of stopping the run if they fail with NotImplementedError.
   Model names in the results table are the French display names of src/labels.py.
   k = --k, else results/tables/best_k.json (written by tune_k.py), else gate.k.
@@ -25,7 +25,7 @@ Output:
   - data/interim/interactions_raw.parquet, interactions_clean.parquet, books_clean.parquet, genres.parquet
   - data/processed/train|val|test.parquet, train_cold.parquet, cold_books.json, cold_users.json,
     id_maps.json, train_csr.npz, n_items.npy, books_aligned.parquet,
-    als_factors.npz, tfidf_items.npz, [book_embeddings.npy]
+    als_factors.npz, tfidf_items.npz
   - results/tables/dataset_stats.csv, test_metrics.csv
   - results/figures/long_tail.png, baseline_bars.png, popularity_of_recs.png
   - results/runs/<timestamp>.json (settings + metrics of the run)
@@ -212,17 +212,6 @@ def step_models(cfg: dict, m: dict, k: float) -> dict:
                                fixed_alpha=cfg["gate"]["fixed_alpha"], normalization=norm),
         f"{L['gate']} (k={k:g})": HybridGate(als, tfidf, n_items, k=k, normalization=norm),
     }
-    if cfg["embeddings"]["enabled"]:                     # optional "recent approach"
-        def fit_embeddings():
-            from src.models.content_embeddings import ContentEmbeddingModel
-            e = cfg["embeddings"]
-            return ContentEmbeddingModel(e["model_name"], e["batch_size"]).fit(
-                m["books"], X, cache_path=P / "book_embeddings.npy")
-        emb = optional(fit_embeddings, "embeddings")
-        if emb is not None:
-            models[L["embeddings"]] = emb
-            models[f"{L['gate']} + embeddings (k={k:g})"] = HybridGate(als, emb, n_items, k=k,
-                                                                        normalization=norm)
     return models
   
 def step_evaluate(cfg: dict, m: dict, models: dict, test, cold_books, cold_users,

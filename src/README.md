@@ -5,7 +5,7 @@
 |---|---|---|
 | `utils/` | config loading, file I/O, id maps | Amine, Ella |
 | `data/` | download -> load -> stats -> clean -> split -> cold start | Amine, Ella |
-| `models/` | popularity, ALS, TF-IDF, hybrid gate (`content_embeddings.py`: future work, not implemented) | Amine, Ella |
+| `models/` | popularity, ALS, TF-IDF, hybrid gate | Amine, Ella |
 | `evaluation/` | accuracy and exposure metrics, evaluation runner | Amine, Ella |
 | `visualization/` | report figures (French) | Ella |
 | `recommend.py` | recommendation logic shared by the app and the CLI | Ella |
